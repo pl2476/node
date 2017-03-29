@@ -187,7 +187,7 @@ static void CopyDictionaryToObjectElements(
                                             : SKIP_WRITE_BARRIER;
   Isolate* isolate = from->GetIsolate();
   for (int i = 0; i < copy_size; i++) {
-    int entry = from->FindEntry(i + from_start);
+    int entry = from->FindEntry(isolate, i + from_start);
     if (entry != SeededNumberDictionary::kNotFound) {
       Object* value = from->ValueAt(entry);
       DCHECK(!value->IsTheHole(isolate));
@@ -417,8 +417,9 @@ static void CopyDictionaryToDoubleElements(FixedArrayBase* from_base,
   if (to_start + copy_size > to_length) {
     copy_size = to_length - to_start;
   }
+  Isolate* isolate = from->GetIsolate();
   for (int i = 0; i < copy_size; i++) {
-    int entry = from->FindEntry(i + from_start);
+    int entry = from->FindEntry(isolate, i + from_start);
     if (entry != SeededNumberDictionary::kNotFound) {
       to->set(i + to_start, from->ValueAt(entry)->Number());
     } else {
@@ -467,6 +468,22 @@ static void SortIndices(
     FIXED_ARRAY_ELEMENTS_WRITE_BARRIER(indices->GetIsolate()->heap(), *indices,
                                        0, sort_size);
   }
+}
+
+static Object* FillNumberSlowPath(Isolate* isolate, Handle<JSTypedArray> array,
+                                  Handle<Object> obj_value,
+                                  uint32_t start, uint32_t end) {
+  Handle<Object> cast_value;
+  ElementsAccessor* elements = array->GetElementsAccessor();
+
+  for (uint32_t k = start; k < end; ++k) {
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+        isolate, cast_value, Object::ToNumber(obj_value));
+    // TODO(caitp,cbruni): throw on neutered array
+    if (V8_UNLIKELY(array->WasNeutered())) return *array;
+    elements->Set(array, k, *cast_value);
+  }
+  return *array;
 }
 
 static Maybe<bool> IncludesValueSlowPath(Isolate* isolate,
@@ -1190,6 +1207,18 @@ class ElementsAccessorBase : public ElementsAccessor {
     return Subclass::GetCapacityImpl(holder, backing_store);
   }
 
+  static Object* FillImpl(Isolate* isolate, Handle<JSObject> receiver,
+                          Handle<Object> obj_value, uint32_t start,
+                          uint32_t end) {
+    UNREACHABLE();
+    return *receiver;
+  }
+
+  Object* Fill(Isolate* isolate, Handle<JSObject> receiver,
+               Handle<Object> obj_value, uint32_t start, uint32_t end) {
+    return Subclass::FillImpl(isolate, receiver, obj_value, start, end);
+  }
+
   static Maybe<bool> IncludesValueImpl(Isolate* isolate,
                                        Handle<JSObject> receiver,
                                        Handle<Object> value,
@@ -1217,6 +1246,24 @@ class ElementsAccessorBase : public ElementsAccessor {
     return Subclass::IndexOfValueImpl(isolate, receiver, value, start_from,
                                       length);
   }
+
+  static Maybe<int64_t> LastIndexOfValueImpl(Isolate* isolate,
+                                             Handle<JSObject> receiver,
+                                             Handle<Object> value,
+                                             uint32_t start_from) {
+    UNREACHABLE();
+    return Just<int64_t>(-1);
+  }
+
+  Maybe<int64_t> LastIndexOfValue(Isolate* isolate, Handle<JSObject> receiver,
+                                  Handle<Object> value,
+                                  uint32_t start_from) final {
+    return Subclass::LastIndexOfValueImpl(isolate, receiver, value, start_from);
+  }
+
+  static void ReverseImpl(JSObject* receiver) { UNREACHABLE(); }
+
+  void Reverse(JSObject* receiver) final { Subclass::ReverseImpl(receiver); }
 
   static uint32_t GetIndexForEntryImpl(FixedArrayBase* backing_store,
                                        uint32_t entry) {
@@ -1628,7 +1675,7 @@ class DictionaryElementsAccessor
     // Iterate through entire range, as accessing elements out of order is
     // observable
     for (uint32_t k = start_from; k < length; ++k) {
-      int entry = dictionary->FindEntry(k);
+      int entry = dictionary->FindEntry(isolate, k);
       if (entry == SeededNumberDictionary::kNotFound) {
         if (search_for_hole) return Just(true);
         continue;
@@ -1694,7 +1741,7 @@ class DictionaryElementsAccessor
     // Iterate through entire range, as accessing elements out of order is
     // observable.
     for (uint32_t k = start_from; k < length; ++k) {
-      int entry = dictionary->FindEntry(k);
+      int entry = dictionary->FindEntry(isolate, k);
       if (entry == SeededNumberDictionary::kNotFound) {
         continue;
       }
@@ -2637,9 +2684,9 @@ class FastDoubleElementsAccessor
     FixedArrayBase* elements_base = receiver->elements();
     Object* value = *search_value;
 
-    if (start_from >= length) return Just<int64_t>(-1);
-
     length = std::min(static_cast<uint32_t>(elements_base->length()), length);
+
+    if (start_from >= length) return Just<int64_t>(-1);
 
     if (!value->IsNumber()) {
       return Just<int64_t>(-1);
@@ -2814,11 +2861,47 @@ class TypedElementsAccessor
     return Just(true);
   }
 
+  static Object* FillImpl(Isolate* isolate, Handle<JSObject> receiver,
+                          Handle<Object> obj_value, uint32_t start,
+                          uint32_t end) {
+    Handle<JSTypedArray> array = Handle<JSTypedArray>::cast(receiver);
+    DCHECK(!array->WasNeutered());
+
+    ctype value;
+    if (obj_value->IsSmi()) {
+      value = BackingStore::from_int(Smi::cast(*obj_value)->value());
+    } else {
+      Handle<HeapObject> heap_obj_value = Handle<HeapObject>::cast(obj_value);
+      if (heap_obj_value->IsHeapNumber()) {
+        value = BackingStore::from_double(
+            HeapNumber::cast(*heap_obj_value)->value());
+      } else if (heap_obj_value->IsOddball()) {
+        value = BackingStore::from_double(
+            Oddball::ToNumber(Handle<Oddball>::cast(heap_obj_value))->Number());
+      } else if (heap_obj_value->IsString()) {
+        value = BackingStore::from_double(
+            String::ToNumber(Handle<String>::cast(heap_obj_value))->Number());
+      } else {
+        return FillNumberSlowPath(isolate, array, obj_value, start, end);
+      }
+    }
+
+    // Ensure indexes are within array bounds
+    DCHECK_LE(0, start);
+    DCHECK_LE(start, end);
+    DCHECK_LE(end, array->length_value());
+
+    DisallowHeapAllocation no_gc;
+    BackingStore* elements = BackingStore::cast(receiver->elements());
+    ctype* data = static_cast<ctype*>(elements->DataPtr());
+    std::fill(data + start, data + end, value);
+    return *array;
+  }
+
   static Maybe<bool> IncludesValueImpl(Isolate* isolate,
                                        Handle<JSObject> receiver,
                                        Handle<Object> value,
                                        uint32_t start_from, uint32_t length) {
-    DCHECK(JSObject::PrototypeHasNoElements(isolate, *receiver));
     DisallowHeapAllocation no_gc;
 
     // TODO(caitp): return Just(false) here when implementing strict throwing on
@@ -2873,7 +2956,6 @@ class TypedElementsAccessor
                                          Handle<JSObject> receiver,
                                          Handle<Object> value,
                                          uint32_t start_from, uint32_t length) {
-    DCHECK(JSObject::PrototypeHasNoElements(isolate, *receiver));
     DisallowHeapAllocation no_gc;
 
     if (WasNeutered(*receiver)) return Just<int64_t>(-1);
@@ -2915,6 +2997,60 @@ class TypedElementsAccessor
       if (element_k == typed_search_value) return Just<int64_t>(k);
     }
     return Just<int64_t>(-1);
+  }
+
+  static Maybe<int64_t> LastIndexOfValueImpl(Isolate* isolate,
+                                             Handle<JSObject> receiver,
+                                             Handle<Object> value,
+                                             uint32_t start_from) {
+    DisallowHeapAllocation no_gc;
+    DCHECK(!WasNeutered(*receiver));
+
+    if (!value->IsNumber()) return Just<int64_t>(-1);
+    BackingStore* elements = BackingStore::cast(receiver->elements());
+
+    double search_value = value->Number();
+
+    if (!std::isfinite(search_value)) {
+      if (std::is_integral<ctype>::value) {
+        // Integral types cannot represent +Inf or NaN.
+        return Just<int64_t>(-1);
+      } else if (std::isnan(search_value)) {
+        // Strict Equality Comparison of NaN is always false.
+        return Just<int64_t>(-1);
+      }
+    } else if (search_value < std::numeric_limits<ctype>::lowest() ||
+               search_value > std::numeric_limits<ctype>::max()) {
+      // Return -1 if value can't be represented in this ElementsKind.
+      return Just<int64_t>(-1);
+    }
+
+    ctype typed_search_value = static_cast<ctype>(search_value);
+    if (static_cast<double>(typed_search_value) != search_value) {
+      return Just<int64_t>(-1);  // Loss of precision.
+    }
+
+    DCHECK_LT(start_from, elements->length());
+
+    uint32_t k = start_from;
+    do {
+      ctype element_k = elements->get_scalar(k);
+      if (element_k == typed_search_value) return Just<int64_t>(k);
+    } while (k-- != 0);
+    return Just<int64_t>(-1);
+  }
+
+  static void ReverseImpl(JSObject* receiver) {
+    DisallowHeapAllocation no_gc;
+    DCHECK(!WasNeutered(receiver));
+
+    BackingStore* elements = BackingStore::cast(receiver->elements());
+
+    uint32_t len = elements->length();
+    if (len == 0) return;
+
+    ctype* data = static_cast<ctype*>(elements->DataPtr());
+    std::reverse(data, data + len);
   }
 };
 

@@ -4,13 +4,17 @@
 
 #include "src/signature.h"
 
+#include "src/base/platform/elapsed-timer.h"
 #include "src/bit-vector.h"
 #include "src/flags.h"
 #include "src/handles.h"
+#include "src/objects-inl.h"
 #include "src/zone/zone-containers.h"
 
 #include "src/wasm/decoder.h"
+#include "src/wasm/function-body-decoder-impl.h"
 #include "src/wasm/function-body-decoder.h"
+#include "src/wasm/wasm-limits.h"
 #include "src/wasm/wasm-module.h"
 #include "src/wasm/wasm-opcodes.h"
 
@@ -31,13 +35,13 @@ namespace wasm {
 #define TRACE(...)
 #endif
 
-#define CHECK_PROTOTYPE_OPCODE(flag)                           \
-  if (module_ != nullptr && module_->origin == kAsmJsOrigin) { \
-    error("Opcode not supported for asmjs modules");           \
-  }                                                            \
-  if (!FLAG_##flag) {                                          \
-    error("Invalid opcode (enable with --" #flag ")");         \
-    break;                                                     \
+#define CHECK_PROTOTYPE_OPCODE(flag)                   \
+  if (module_ != nullptr && module_->is_asm_js()) {    \
+    error("Opcode not supported for asmjs modules");   \
+  }                                                    \
+  if (!FLAG_##flag) {                                  \
+    error("Invalid opcode (enable with --" #flag ")"); \
+    break;                                             \
   }
 
 // An SsaEnv environment carries the current local variable renaming
@@ -149,16 +153,6 @@ struct Control {
   (build() ? CheckForException(builder_->func(__VA_ARGS__)) : nullptr)
 #define BUILD0(func) (build() ? CheckForException(builder_->func()) : nullptr)
 
-struct LaneOperand {
-  uint8_t lane;
-  unsigned length;
-
-  inline LaneOperand(Decoder* decoder, const byte* pc) {
-    lane = decoder->checked_read_u8(pc, 2, "lane");
-    length = 1;
-  }
-};
-
 // Generic Wasm bytecode decoder with utilities for decoding operands,
 // lengths, etc.
 class WasmDecoder : public Decoder {
@@ -183,10 +177,7 @@ class WasmDecoder : public Decoder {
     DCHECK_NOT_NULL(type_list);
     // Initialize from signature.
     if (sig != nullptr) {
-      type_list->reserve(sig->parameter_count());
-      for (size_t i = 0; i < sig->parameter_count(); ++i) {
-        type_list->push_back(sig->GetParam(i));
-      }
+      type_list->assign(sig->parameters().begin(), sig->parameters().end());
     }
     // Decode local declarations, if any.
     uint32_t entries = decoder->consume_u32v("local decls count");
@@ -197,7 +188,7 @@ class WasmDecoder : public Decoder {
       uint32_t count = decoder->consume_u32v("local count");
       if (decoder->failed()) return false;
 
-      if ((count + type_list->size()) > kMaxNumWasmLocals) {
+      if ((count + type_list->size()) > kV8MaxWasmFunctionLocals) {
         decoder->error(decoder->pc() - 1, "local count too large");
         return false;
       }
@@ -220,6 +211,15 @@ class WasmDecoder : public Decoder {
           break;
         case kLocalS128:
           type = kWasmS128;
+          break;
+        case kLocalS1x4:
+          type = kWasmS1x4;
+          break;
+        case kLocalS1x8:
+          type = kWasmS1x8;
+          break;
+        case kLocalS1x16:
+          type = kWasmS1x16;
           break;
         default:
           decoder->error(decoder->pc() - 1, "invalid local type");
@@ -349,9 +349,61 @@ class WasmDecoder : public Decoder {
     return true;
   }
 
-  inline bool Validate(const byte* pc, LaneOperand& operand) {
-    if (operand.lane < 0 || operand.lane > 3) {
-      error(pc_, pc_ + 2, "invalid extract lane value");
+  inline bool Validate(const byte* pc, WasmOpcode opcode,
+                       SimdLaneOperand& operand) {
+    uint8_t num_lanes = 0;
+    switch (opcode) {
+      case kExprF32x4ExtractLane:
+      case kExprF32x4ReplaceLane:
+      case kExprI32x4ExtractLane:
+      case kExprI32x4ReplaceLane:
+        num_lanes = 4;
+        break;
+      case kExprI16x8ExtractLane:
+      case kExprI16x8ReplaceLane:
+        num_lanes = 8;
+        break;
+      case kExprI8x16ExtractLane:
+      case kExprI8x16ReplaceLane:
+        num_lanes = 16;
+        break;
+      default:
+        UNREACHABLE();
+        break;
+    }
+    if (operand.lane < 0 || operand.lane >= num_lanes) {
+      error(pc_, pc_ + 2, "invalid lane index");
+      return false;
+    } else {
+      return true;
+    }
+  }
+
+  inline bool Validate(const byte* pc, WasmOpcode opcode,
+                       SimdShiftOperand& operand) {
+    uint8_t max_shift = 0;
+    switch (opcode) {
+      case kExprI32x4Shl:
+      case kExprI32x4ShrS:
+      case kExprI32x4ShrU:
+        max_shift = 32;
+        break;
+      case kExprI16x8Shl:
+      case kExprI16x8ShrS:
+      case kExprI16x8ShrU:
+        max_shift = 16;
+        break;
+      case kExprI8x16Shl:
+      case kExprI8x16ShrS:
+      case kExprI8x16ShrU:
+        max_shift = 8;
+        break;
+      default:
+        UNREACHABLE();
+        break;
+    }
+    if (operand.shift < 0 || operand.shift >= max_shift) {
+      error(pc_, pc_ + 2, "invalid shift amount");
       return false;
     } else {
       return true;
@@ -605,7 +657,13 @@ class WasmFullDecoder : public WasmDecoder {
       case kWasmF64:
         return builder_->Float64Constant(0);
       case kWasmS128:
-        return builder_->CreateS128Value(0);
+        return builder_->S128Zero();
+      case kWasmS1x4:
+        return builder_->S1x4Zero();
+      case kWasmS1x8:
+        return builder_->S1x8Zero();
+      case kWasmS1x16:
+        return builder_->S1x16Zero();
       default:
         UNREACHABLE();
         return nullptr;
@@ -658,10 +716,12 @@ class WasmFullDecoder : public WasmDecoder {
     while (pc_ < end_) {  // decoding loop.
       unsigned len = 1;
       WasmOpcode opcode = static_cast<WasmOpcode>(*pc_);
-      if (!WasmOpcodes::IsPrefixOpcode(opcode)) {
-        TRACE("  @%-8d #%02x:%-20s|", startrel(pc_), opcode,
-              WasmOpcodes::ShortOpcodeName(opcode));
+#if DEBUG
+      if (FLAG_trace_wasm_decoder && !WasmOpcodes::IsPrefixOpcode(opcode)) {
+        TRACE("  @%-8d #%-20s|", startrel(pc_),
+              WasmOpcodes::OpcodeName(opcode));
       }
+#endif
 
       FunctionSig* sig = WasmOpcodes::Signature(opcode);
       if (sig) {
@@ -847,7 +907,7 @@ class WasmFullDecoder : public WasmDecoder {
               last_end_found_ = true;
               if (ssa_env_->go()) {
                 // The result of the block is the return value.
-                TRACE("  @%-8d #xx:%-20s|", startrel(pc_), "ImplicitReturn");
+                TRACE("  @%-8d #xx:%-20s|", startrel(pc_), "(implicit) return");
                 DoReturn();
                 TRACE("\n");
               } else {
@@ -932,8 +992,7 @@ class WasmFullDecoder : public WasmDecoder {
                   if (i == 0) {
                     merge = &c->merge;
                   } else if (merge->arity != c->merge.arity) {
-                    error(pos, pos,
-                          "inconsistent arity in br_table target %d"
+                    error(pos, pos, "inconsistent arity in br_table target %d"
                           " (previous was %u, this one %u)",
                           i, merge->arity, c->merge.arity);
                   } else if (control_.back().unreachable) {
@@ -941,8 +1000,8 @@ class WasmFullDecoder : public WasmDecoder {
                       if ((*merge)[j].type != c->merge[j].type) {
                         error(pos, pos,
                               "type error in br_table target %d operand %d"
-                              " (previous expected %s, this one %s)",
-                              i, j, WasmOpcodes::TypeName((*merge)[j].type),
+                              " (previous expected %s, this one %s)", i, j,
+                              WasmOpcodes::TypeName((*merge)[j].type),
                               WasmOpcodes::TypeName(c->merge[j].type));
                       }
                     }
@@ -1098,6 +1157,9 @@ class WasmFullDecoder : public WasmDecoder {
           case kExprF64LoadMem:
             len = DecodeLoadMem(kWasmF64, MachineType::Float64());
             break;
+          case kExprS128LoadMem:
+            len = DecodeLoadMem(kWasmS128, MachineType::Simd128());
+            break;
           case kExprI32StoreMem8:
             len = DecodeStoreMem(kWasmI32, MachineType::Int8());
             break;
@@ -1125,11 +1187,14 @@ class WasmFullDecoder : public WasmDecoder {
           case kExprF64StoreMem:
             len = DecodeStoreMem(kWasmF64, MachineType::Float64());
             break;
+          case kExprS128StoreMem:
+            len = DecodeStoreMem(kWasmS128, MachineType::Simd128());
+            break;
           case kExprGrowMemory: {
             if (!CheckHasMemory()) break;
             MemoryIndexOperand operand(this, pc_);
             DCHECK_NOT_NULL(module_);
-            if (module_->origin != kAsmJsOrigin) {
+            if (module_->is_wasm()) {
               Value val = Pop(0, kWasmI32);
               Push(kWasmI32, BUILD(GrowMemory, val.node));
             } else {
@@ -1174,13 +1239,13 @@ class WasmFullDecoder : public WasmDecoder {
             len++;
             byte simd_index = checked_read_u8(pc_, 1, "simd index");
             opcode = static_cast<WasmOpcode>(opcode << 8 | simd_index);
-            TRACE("  @%-4d #%02x #%02x:%-20s|", startrel(pc_), kSimdPrefix,
-                  simd_index, WasmOpcodes::ShortOpcodeName(opcode));
+            TRACE("  @%-4d #%-20s|", startrel(pc_),
+                  WasmOpcodes::OpcodeName(opcode));
             len += DecodeSimdOpcode(opcode);
             break;
           }
           case kAtomicPrefix: {
-            if (module_ == nullptr || module_->origin != kAsmJsOrigin) {
+            if (module_ == nullptr || !module_->is_asm_js()) {
               error("Atomics are allowed only in AsmJs modules");
               break;
             }
@@ -1199,7 +1264,7 @@ class WasmFullDecoder : public WasmDecoder {
           }
           default: {
             // Deal with special asmjs opcodes.
-            if (module_ != nullptr && module_->origin == kAsmJsOrigin) {
+            if (module_ != nullptr && module_->is_asm_js()) {
               sig = WasmOpcodes::AsmjsSignature(opcode);
               if (sig) {
                 BuildSimpleOperator(opcode, sig);
@@ -1251,7 +1316,7 @@ class WasmFullDecoder : public WasmDecoder {
           }
           PrintF(" %c@%d:%s", WasmOpcodes::ShortNameOf(val.type),
                  static_cast<int>(val.pc - start_),
-                 WasmOpcodes::ShortOpcodeName(opcode));
+                 WasmOpcodes::OpcodeName(opcode));
           switch (opcode) {
             case kExprI32Const: {
               ImmI32Operand operand(this, val.pc);
@@ -1370,9 +1435,9 @@ class WasmFullDecoder : public WasmDecoder {
     return 1 + operand.length;
   }
 
-  unsigned ExtractLane(WasmOpcode opcode, ValueType type) {
-    LaneOperand operand(this, pc_);
-    if (Validate(pc_, operand)) {
+  unsigned SimdExtractLane(WasmOpcode opcode, ValueType type) {
+    SimdLaneOperand operand(this, pc_);
+    if (Validate(pc_, opcode, operand)) {
       compiler::NodeVector inputs(1, zone_);
       inputs[0] = Pop(0, ValueType::kSimd128).node;
       TFNode* node = BUILD(SimdLaneOp, opcode, operand.lane, inputs);
@@ -1381,9 +1446,9 @@ class WasmFullDecoder : public WasmDecoder {
     return operand.length;
   }
 
-  unsigned ReplaceLane(WasmOpcode opcode, ValueType type) {
-    LaneOperand operand(this, pc_);
-    if (Validate(pc_, operand)) {
+  unsigned SimdReplaceLane(WasmOpcode opcode, ValueType type) {
+    SimdLaneOperand operand(this, pc_);
+    if (Validate(pc_, opcode, operand)) {
       compiler::NodeVector inputs(2, zone_);
       inputs[1] = Pop(1, type).node;
       inputs[0] = Pop(0, ValueType::kSimd128).node;
@@ -1393,23 +1458,50 @@ class WasmFullDecoder : public WasmDecoder {
     return operand.length;
   }
 
+  unsigned SimdShiftOp(WasmOpcode opcode) {
+    SimdShiftOperand operand(this, pc_);
+    if (Validate(pc_, opcode, operand)) {
+      compiler::NodeVector inputs(1, zone_);
+      inputs[0] = Pop(0, ValueType::kSimd128).node;
+      TFNode* node = BUILD(SimdShiftOp, opcode, operand.shift, inputs);
+      Push(ValueType::kSimd128, node);
+    }
+    return operand.length;
+  }
+
   unsigned DecodeSimdOpcode(WasmOpcode opcode) {
     unsigned len = 0;
     switch (opcode) {
-      case kExprI32x4ExtractLane: {
-        len = ExtractLane(opcode, ValueType::kWord32);
-        break;
-      }
       case kExprF32x4ExtractLane: {
-        len = ExtractLane(opcode, ValueType::kFloat32);
+        len = SimdExtractLane(opcode, ValueType::kFloat32);
         break;
       }
-      case kExprI32x4ReplaceLane: {
-        len = ReplaceLane(opcode, ValueType::kWord32);
+      case kExprI32x4ExtractLane:
+      case kExprI16x8ExtractLane:
+      case kExprI8x16ExtractLane: {
+        len = SimdExtractLane(opcode, ValueType::kWord32);
         break;
       }
       case kExprF32x4ReplaceLane: {
-        len = ReplaceLane(opcode, ValueType::kFloat32);
+        len = SimdReplaceLane(opcode, ValueType::kFloat32);
+        break;
+      }
+      case kExprI32x4ReplaceLane:
+      case kExprI16x8ReplaceLane:
+      case kExprI8x16ReplaceLane: {
+        len = SimdReplaceLane(opcode, ValueType::kWord32);
+        break;
+      }
+      case kExprI32x4Shl:
+      case kExprI32x4ShrS:
+      case kExprI32x4ShrU:
+      case kExprI16x8Shl:
+      case kExprI16x8ShrS:
+      case kExprI16x8ShrU:
+      case kExprI8x16Shl:
+      case kExprI8x16ShrS:
+      case kExprI8x16ShrU: {
+        len = SimdShiftOp(opcode);
         break;
       }
       default: {
@@ -1475,7 +1567,7 @@ class WasmFullDecoder : public WasmDecoder {
 
   const char* SafeOpcodeNameAt(const byte* pc) {
     if (pc >= end_) return "<end>";
-    return WasmOpcodes::ShortOpcodeName(static_cast<WasmOpcode>(*pc));
+    return WasmOpcodes::OpcodeName(static_cast<WasmOpcode>(*pc));
   }
 
   Value Pop(int index, ValueType expected) {
@@ -1770,22 +1862,20 @@ class WasmFullDecoder : public WasmDecoder {
     env->control = builder_->Loop(env->control);
     env->effect = builder_->EffectPhi(1, &env->effect, env->control);
     builder_->Terminate(env->effect, env->control);
-    if (FLAG_wasm_loop_assignment_analysis) {
-      BitVector* assigned = AnalyzeLoopAssignment(
-          this, pc, static_cast<int>(total_locals()), zone_);
-      if (failed()) return env;
-      if (assigned != nullptr) {
-        // Only introduce phis for variables assigned in this loop.
-        for (int i = EnvironmentCount() - 1; i >= 0; i--) {
-          if (!assigned->Contains(i)) continue;
-          env->locals[i] = builder_->Phi(local_type_vec_[i], 1, &env->locals[i],
-                                         env->control);
-        }
-        SsaEnv* loop_body_env = Split(env);
-        builder_->StackCheck(position(), &(loop_body_env->effect),
-                             &(loop_body_env->control));
-        return loop_body_env;
+    BitVector* assigned = AnalyzeLoopAssignment(
+        this, pc, static_cast<int>(total_locals()), zone_);
+    if (failed()) return env;
+    if (assigned != nullptr) {
+      // Only introduce phis for variables assigned in this loop.
+      for (int i = EnvironmentCount() - 1; i >= 0; i--) {
+        if (!assigned->Contains(i)) continue;
+        env->locals[i] =
+            builder_->Phi(local_type_vec_[i], 1, &env->locals[i], env->control);
       }
+      SsaEnv* loop_body_env = Split(env);
+      builder_->StackCheck(position(), &(loop_body_env->effect),
+                           &(loop_body_env->control));
+      return loop_body_env;
     }
 
     // Conservatively introduce phis for all local variables.

@@ -304,22 +304,11 @@ class Simulator {
 
   inline int64_t ReadDW(intptr_t addr);
   inline double ReadDouble(intptr_t addr);
+  inline float ReadFloat(intptr_t addr);
   inline void WriteDW(intptr_t addr, int64_t value);
 
   // S390
   void Trace(Instruction* instr);
-  bool DecodeTwoByte(Instruction* instr);
-  bool DecodeFourByte(Instruction* instr);
-  bool DecodeFourByteArithmetic(Instruction* instr);
-  bool DecodeFourByteArithmetic64Bit(Instruction* instr);
-  bool DecodeFourByteFloatingPoint(Instruction* instr);
-  void DecodeFourByteFloatingPointIntConversion(Instruction* instr);
-  void DecodeFourByteFloatingPointRound(Instruction* instr);
-
-  bool DecodeSixByte(Instruction* instr);
-  bool DecodeSixByteArithmetic(Instruction* instr);
-  bool S390InstructionDecode(Instruction* instr);
-  void DecodeSixByteBitShift(Instruction* instr);
 
   // Used by the CL**BR instructions.
   template <typename T1, typename T2>
@@ -615,6 +604,7 @@ class Simulator {
   EVALUATE(OI);
   EVALUATE(XI);
   EVALUATE(LM);
+  EVALUATE(CS);
   EVALUATE(MVCLE);
   EVALUATE(CLCLE);
   EVALUATE(MC);
@@ -1142,6 +1132,7 @@ class Simulator {
   EVALUATE(SRLG);
   EVALUATE(SLLG);
   EVALUATE(CSY);
+  EVALUATE(CSG);
   EVALUATE(RLLG);
   EVALUATE(RLL);
   EVALUATE(STMG);

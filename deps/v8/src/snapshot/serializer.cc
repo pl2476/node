@@ -4,6 +4,8 @@
 
 #include "src/snapshot/serializer.h"
 
+#include "src/assembler-inl.h"
+#include "src/heap/heap-inl.h"
 #include "src/macro-assembler.h"
 #include "src/snapshot/natives.h"
 
@@ -745,7 +747,7 @@ Address Serializer::ObjectSerializer::PrepareCode() {
                     RelocInfo::ModeMask(RelocInfo::INTERNAL_REFERENCE_ENCODED);
     for (RelocIterator it(code, mode_mask); !it.done(); it.next()) {
       RelocInfo* rinfo = it.rinfo();
-      rinfo->WipeOut();
+      rinfo->WipeOut(serializer_->isolate());
     }
     // We need to wipe out the header fields *after* wiping out the
     // relocations, because some of these fields are needed for the latter.

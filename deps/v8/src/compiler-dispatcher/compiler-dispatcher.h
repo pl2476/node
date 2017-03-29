@@ -28,8 +28,11 @@ namespace internal {
 class CancelableTaskManager;
 class CompilerDispatcherJob;
 class CompilerDispatcherTracer;
+class DeferredHandles;
+class FunctionLiteral;
 class Isolate;
 class SharedFunctionInfo;
+class Zone;
 
 template <typename T>
 class Handle;
@@ -68,7 +71,10 @@ class V8_EXPORT_PRIVATE CompilerDispatcher {
                      size_t max_stack_size);
   ~CompilerDispatcher();
 
-  // Returns true if a job was enqueued.
+  // Returns true if the compiler dispatcher is enabled.
+  bool IsEnabled() const;
+
+  // Enqueue a job for parse and compile. Returns true if a job was enqueued.
   bool Enqueue(Handle<SharedFunctionInfo> function);
 
   // Like Enqueue, but also advances the job so that it can potentially
@@ -76,11 +82,28 @@ class V8_EXPORT_PRIVATE CompilerDispatcher {
   // true if the job was enqueued.
   bool EnqueueAndStep(Handle<SharedFunctionInfo> function);
 
+  // Enqueue a job for compilation. Function must have already been parsed and
+  // analyzed and be ready for compilation. Returns true if a job was enqueued.
+  bool Enqueue(Handle<Script> script, Handle<SharedFunctionInfo> function,
+               FunctionLiteral* literal, std::shared_ptr<Zone> parse_zone,
+               std::shared_ptr<DeferredHandles> parse_handles,
+               std::shared_ptr<DeferredHandles> compile_handles);
+
+  // Like Enqueue, but also advances the job so that it can potentially
+  // continue running on a background thread (if at all possible). Returns
+  // true if the job was enqueued.
+  bool EnqueueAndStep(Handle<Script> script,
+                      Handle<SharedFunctionInfo> function,
+                      FunctionLiteral* literal,
+                      std::shared_ptr<Zone> parse_zone,
+                      std::shared_ptr<DeferredHandles> parse_handles,
+                      std::shared_ptr<DeferredHandles> compile_handles);
+
   // Returns true if there is a pending job for the given function.
   bool IsEnqueued(Handle<SharedFunctionInfo> function) const;
 
   // Blocks until the given function is compiled (and does so as fast as
-  // possible). Returns true if the compile job was succesful.
+  // possible). Returns true if the compile job was successful.
   bool FinishNow(Handle<SharedFunctionInfo> function);
 
   // Aborts a given job. Blocks if requested.
@@ -95,12 +118,16 @@ class V8_EXPORT_PRIVATE CompilerDispatcher {
 
  private:
   FRIEND_TEST(CompilerDispatcherTest, EnqueueAndStep);
+  FRIEND_TEST(CompilerDispatcherTest, EnqueueAndStepTwice);
+  FRIEND_TEST(CompilerDispatcherTest, EnqueueParsed);
+  FRIEND_TEST(CompilerDispatcherTest, EnqueueAndStepParsed);
   FRIEND_TEST(CompilerDispatcherTest, IdleTaskSmallIdleTime);
   FRIEND_TEST(CompilerDispatcherTest, CompileOnBackgroundThread);
   FRIEND_TEST(CompilerDispatcherTest, FinishNowWithBackgroundTask);
   FRIEND_TEST(CompilerDispatcherTest, AsyncAbortAllPendingBackgroundTask);
   FRIEND_TEST(CompilerDispatcherTest, AsyncAbortAllRunningBackgroundTask);
   FRIEND_TEST(CompilerDispatcherTest, FinishNowDuringAbortAll);
+  FRIEND_TEST(CompilerDispatcherTest, CompileMultipleOnBackgroundThread);
 
   typedef std::multimap<std::pair<int, int>,
                         std::unique_ptr<CompilerDispatcherJob>>
@@ -110,8 +137,8 @@ class V8_EXPORT_PRIVATE CompilerDispatcher {
   class IdleTask;
 
   void WaitForJobIfRunningOnBackground(CompilerDispatcherJob* job);
-  bool IsEnabled() const;
   void AbortInactiveJobs();
+  bool CanEnqueue(Handle<SharedFunctionInfo> function);
   JobMap::const_iterator GetJobFor(Handle<SharedFunctionInfo> shared) const;
   void ConsiderJobForBackgroundProcessing(CompilerDispatcherJob* job);
   void ScheduleMoreBackgroundTasksIfNeeded();
@@ -147,8 +174,8 @@ class V8_EXPORT_PRIVATE CompilerDispatcher {
 
   bool idle_task_scheduled_;
 
-  // Number of currently scheduled BackgroundTask objects.
-  size_t num_scheduled_background_tasks_;
+  // Number of scheduled or running BackgroundTask objects.
+  size_t num_background_tasks_;
 
   // The set of CompilerDispatcherJobs that can be advanced on any thread.
   std::unordered_set<CompilerDispatcherJob*> pending_background_jobs_;

@@ -175,6 +175,16 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
     return AddNode(machine()->AtomicStore(rep), base, index, value);
   }
 
+  Node* AtomicExchange(MachineType rep, Node* base, Node* index, Node* value) {
+    return AddNode(machine()->AtomicExchange(rep), base, index, value);
+  }
+
+  Node* AtomicCompareExchange(MachineType rep, Node* base, Node* index,
+                              Node* old_value, Node* new_value) {
+    return AddNode(machine()->AtomicCompareExchange(rep), base, index,
+                   old_value, new_value);
+  }
+
   // Arithmetic Operations.
   Node* WordAnd(Node* a, Node* b) {
     return AddNode(machine()->WordAnd(), a, b);
@@ -534,13 +544,21 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
 
   // Conversions.
   Node* BitcastTaggedToWord(Node* a) {
+#ifdef ENABLE_VERIFY_CSA
     return AddNode(machine()->BitcastTaggedToWord(), a);
+#else
+    return a;
+#endif
   }
   Node* BitcastWordToTagged(Node* a) {
     return AddNode(machine()->BitcastWordToTagged(), a);
   }
   Node* BitcastWordToTaggedSigned(Node* a) {
+#ifdef ENABLE_VERIFY_CSA
     return AddNode(machine()->BitcastWordToTaggedSigned(), a);
+#else
+    return a;
+#endif
   }
   Node* TruncateFloat64ToWord32(Node* a) {
     return AddNode(machine()->TruncateFloat64ToWord32(), a);
@@ -559,6 +577,9 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   }
   Node* ChangeFloat64ToUint32(Node* a) {
     return AddNode(machine()->ChangeFloat64ToUint32(), a);
+  }
+  Node* ChangeFloat64ToUint64(Node* a) {
+    return AddNode(machine()->ChangeFloat64ToUint64(), a);
   }
   Node* TruncateFloat64ToUint32(Node* a) {
     return AddNode(machine()->TruncateFloat64ToUint32(), a);
@@ -761,6 +782,7 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   void Bind(RawMachineLabel* label);
   void Deoptimize(Node* state);
   void DebugBreak();
+  void Unreachable();
   void Comment(const char* msg);
 
   // Add success / exception successor blocks and ends the current block ending
