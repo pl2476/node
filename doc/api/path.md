@@ -18,9 +18,7 @@ on which a Node.js application is running. Specifically, when running on a
 Windows operating system, the `path` module will assume that Windows-style
 paths are being used.
 
-For example, using the `path.basename()` function with the Windows file path
-`C:\temp\myfile.html`, will yield different results when running on POSIX than
-when run on Windows:
+So using `path.basename()` might yield different results on POSIX and Windows:
 
 On POSIX:
 
@@ -56,9 +54,9 @@ path.posix.basename('/tmp/myfile.html');
 // Returns: 'myfile.html'
 ```
 
-*Note:* On Windows Node.js follows the concept of per-drive working directory.
+On Windows Node.js follows the concept of per-drive working directory.
 This behavior can be observed when using a drive path without a backslash. For
-example `path.resolve('c:\\')` can potentially return a different result than
+example, `path.resolve('c:\\')` can potentially return a different result than
 `path.resolve('c:')`. For more information, see
 [this MSDN page][MSDN-Rel-Path].
 
@@ -78,8 +76,6 @@ changes:
 The `path.basename()` methods returns the last portion of a `path`, similar to
 the Unix `basename` command. Trailing directory separators are ignored, see
 [`path.sep`][].
-
-For example:
 
 ```js
 path.basename('/foo/bar/baz/asdf/quux.html');
@@ -140,8 +136,6 @@ The `path.dirname()` method returns the directory name of a `path`, similar to
 the Unix `dirname` command. Trailing directory separators are ignored, see
 [`path.sep`][].
 
-For example:
-
 ```js
 path.dirname('/foo/bar/baz/asdf/quux');
 // Returns: '/foo/bar/baz/asdf'
@@ -163,11 +157,9 @@ changes:
 
 The `path.extname()` method returns the extension of the `path`, from the last
 occurrence of the `.` (period) character to end of string in the last portion of
-the `path`.  If there is no `.` in the last portion of the `path`, or if the
-first character of the basename of `path` (see `path.basename()`) is `.`, then
-an empty string is returned.
-
-For example:
+the `path`. If there is no `.` in the last portion of the `path`, or if
+there are no `.` characters other than the first character of
+the basename of `path` (see `path.basename()`) , an empty string is returned.
 
 ```js
 path.extname('index.html');
@@ -184,6 +176,9 @@ path.extname('index');
 
 path.extname('.index');
 // Returns: ''
+
+path.extname('.index.md');
+// Returns: '.md'
 ```
 
 A [`TypeError`][] is thrown if `path` is not a string.
@@ -264,7 +259,7 @@ The `path.isAbsolute()` method determines if `path` is an absolute path.
 
 If the given `path` is a zero-length string, `false` will be returned.
 
-For example on POSIX:
+For example, on POSIX:
 
 ```js
 path.isAbsolute('/foo/bar'); // true
@@ -296,20 +291,18 @@ added: v0.1.16
 * Returns: {string}
 
 The `path.join()` method joins all given `path` segments together using the
-platform specific separator as a delimiter, then normalizes the resulting path.
+platform-specific separator as a delimiter, then normalizes the resulting path.
 
 Zero-length `path` segments are ignored. If the joined path string is a
 zero-length string then `'.'` will be returned, representing the current
 working directory.
-
-For example:
 
 ```js
 path.join('/foo', 'bar', 'baz/asdf', 'quux', '..');
 // Returns: '/foo/bar/baz/asdf'
 
 path.join('foo', {}, 'bar');
-// throws 'TypeError: Path must be a string. Received {}'
+// Throws 'TypeError: Path must be a string. Received {}'
 ```
 
 A [`TypeError`][] is thrown if any of the path segments is not a string.
@@ -327,13 +320,13 @@ The `path.normalize()` method normalizes the given `path`, resolving `'..'` and
 
 When multiple, sequential path segment separation characters are found (e.g.
 `/` on POSIX and either `\` or `/` on Windows), they are replaced by a single
-instance of the platform specific path segment separator (`/` on POSIX and
+instance of the platform-specific path segment separator (`/` on POSIX and
 `\` on Windows). Trailing separators are preserved.
 
 If the `path` is a zero-length string, `'.'` is returned, representing the
 current working directory.
 
-For example on POSIX:
+For example, on POSIX:
 
 ```js
 path.normalize('/foo/bar//baz/asdf/quux/..');
@@ -377,7 +370,7 @@ The returned object will have the following properties:
 * `name` {string}
 * `ext` {string}
 
-For example on POSIX:
+For example, on POSIX:
 
 ```js
 path.parse('/home/user/dir/file.txt');
@@ -396,7 +389,7 @@ path.parse('/home/user/dir/file.txt');
 │ root │              │ name │ ext │
 "  /    home/user/dir / file  .txt "
 └──────┴──────────────┴──────┴─────┘
-(all spaces in the "" line should be ignored -- they are purely for formatting)
+(all spaces in the "" line should be ignored — they are purely for formatting)
 ```
 
 On Windows:
@@ -418,7 +411,7 @@ path.parse('C:\\path\\dir\\file.txt');
 │ root │              │ name │ ext │
 " C:\      path\dir   \ file  .txt "
 └──────┴──────────────┴──────┴─────┘
-(all spaces in the "" line should be ignored -- they are purely for formatting)
+(all spaces in the "" line should be ignored — they are purely for formatting)
 ```
 
 A [`TypeError`][] is thrown if `path` is not a string.
@@ -454,7 +447,7 @@ path (after calling `path.resolve()` on each), a zero-length string is returned.
 If a zero-length string is passed as `from` or `to`, the current working
 directory will be used instead of the zero-length strings.
 
-For example on POSIX:
+For example, on POSIX:
 
 ```js
 path.relative('/data/orandea/test/aaa', '/data/orandea/impl/bbb');
@@ -497,8 +490,6 @@ Zero-length `path` segments are ignored.
 If no `path` segments are passed, `path.resolve()` will return the absolute path
 of the current working directory.
 
-For example:
-
 ```js
 path.resolve('/foo/bar', './baz');
 // Returns: '/foo/bar/baz'
@@ -507,7 +498,7 @@ path.resolve('/foo/bar', '/tmp/file/');
 // Returns: '/tmp/file'
 
 path.resolve('wwwroot', 'static_files/png/', '../gif/image.gif');
-// if the current working directory is /home/myself/node,
+// If the current working directory is /home/myself/node,
 // this returns '/home/myself/node/wwwroot/static_files/gif/image.gif'
 ```
 
@@ -525,7 +516,7 @@ Provides the platform-specific path segment separator:
 * `\` on Windows
 * `/` on POSIX
 
-For example on POSIX:
+For example, on POSIX:
 
 ```js
 'foo/bar/baz'.split(path.sep);
@@ -539,9 +530,24 @@ On Windows:
 // Returns: ['foo', 'bar', 'baz']
 ```
 
-*Note*: On Windows, both the forward slash (`/`) and backward slash (`\`) are
-accepted as path segment separators; however, the `path` methods only add
-backward slashes (`\`).
+On Windows, both the forward slash (`/`) and backward slash (`\`) are accepted
+as path segment separators; however, the `path` methods only add backward
+slashes (`\`).
+
+## path.toNamespacedPath(path)
+<!-- YAML
+added: v9.0.0
+-->
+
+* `path` {string}
+* Returns: {string}
+
+On Windows systems only, returns an equivalent [namespace-prefixed path][] for
+the given `path`. If `path` is not a string, `path` will be returned without
+modifications.
+
+This method is meaningful only on Windows system. On POSIX systems, the
+method is non-operational and always returns `path` without modifications.
 
 ## path.win32
 <!-- YAML
@@ -558,4 +564,5 @@ of the `path` methods.
 [`path.posix`]: #path_path_posix
 [`path.sep`]: #path_path_sep
 [`path.win32`]: #path_path_win32
-[MSDN-Rel-Path]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247.aspx#fully_qualified_vs._relative_paths
+[MSDN-Rel-Path]: https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#fully-qualified-vs-relative-paths
+[namespace-prefixed path]: https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#namespaces

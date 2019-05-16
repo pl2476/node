@@ -59,6 +59,34 @@ Data types
     Abstract representation of a file descriptor. On Unix systems this is a
     `typedef` of `int` and on Windows a `HANDLE`.
 
+.. c:type:: uv_pid_t
+
+    Cross platform representation of a `pid_t`.
+
+    .. versionadded:: 1.16.0
+
+.. c:type:: uv_timeval_t
+
+    Data type for storing times.
+
+    ::
+
+        typedef struct {
+            long tv_sec;
+            long tv_usec;
+        } uv_timeval_t;
+
+.. c:type:: uv_timeval64_t
+
+    Alternative data type for storing times.
+
+    ::
+
+        typedef struct {
+            int64_t tv_sec;
+            int32_t tv_usec;
+        } uv_timeval64_t;
+
 .. c:type:: uv_rusage_t
 
     Data type for resource usage results.
@@ -139,6 +167,19 @@ Data types
             char* homedir;
         } uv_passwd_t;
 
+.. c:type:: uv_utsname_t
+
+    Data type for operating system name and version information.
+
+    ::
+
+        typedef struct uv_utsname_s {
+            char sysname[256];
+            char release[256];
+            char version[256];
+            char machine[256];
+        } uv_utsname_t;
+
 
 API
 ---
@@ -191,8 +232,7 @@ API
     `UV_EINVAL` is returned. If `size` cannot accommodate the process title and
     terminating `NULL` character, the function returns `UV_ENOBUFS`.
 
-    .. warning::
-        `uv_get_process_title` is not thread safe on any platform except Windows.
+    .. versionchanged:: 1.18.1 now thread-safe on all supported platforms.
 
 .. c:function:: int uv_set_process_title(const char* title)
 
@@ -202,8 +242,7 @@ API
     larger than the available space. Other platforms will return `UV_ENOMEM` if
     they cannot allocate enough space to duplicate the contents of `title`.
 
-    .. warning::
-        `uv_set_process_title` is not thread safe on any platform except Windows.
+    .. versionchanged:: 1.18.1 now thread-safe on all supported platforms.
 
 .. c:function:: int uv_resident_set_memory(size_t* rss)
 
@@ -220,6 +259,18 @@ API
     .. note::
         On Windows not all fields are set, the unsupported fields are filled with zeroes.
         See :c:type:`uv_rusage_t` for more details.
+
+.. c:function:: uv_pid_t uv_os_getpid(void)
+
+    Returns the current process ID.
+
+    .. versionadded:: 1.18.0
+
+.. c:function:: uv_pid_t uv_os_getppid(void)
+
+    Returns the parent process ID.
+
+    .. versionadded:: 1.16.0
 
 .. c:function:: int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count)
 
@@ -270,6 +321,60 @@ API
     Cross-platform IPv6-capable implementation of :man:`inet_ntop(3)`
     and :man:`inet_pton(3)`. On success they return 0. In case of error
     the target `dst` pointer is unmodified.
+
+.. c:macro:: UV_IF_NAMESIZE
+
+    Maximum IPv6 interface identifier name length.  Defined as
+    `IFNAMSIZ` on Unix and `IF_NAMESIZE` on Linux and Windows.
+
+    .. versionadded:: 1.16.0
+
+.. c:function:: int uv_if_indextoname(unsigned int ifindex, char* buffer, size_t* size)
+
+    IPv6-capable implementation of :man:`if_indextoname(3)`. When called,
+    `*size` indicates the length of the `buffer`, which is used to store the
+    result.
+    On success, zero is returned, `buffer` contains the interface name, and
+    `*size` represents the string length of the `buffer`, excluding the NUL
+    terminator byte from `*size`. On error, a negative result is
+    returned. If `buffer` is not large enough to hold the result,
+    `UV_ENOBUFS` is returned, and `*size` represents the necessary size in
+    bytes, including the NUL terminator byte into the `*size`.
+
+    On Unix, the returned interface name can be used directly as an
+    interface identifier in scoped IPv6 addresses, e.g.
+    `fe80::abc:def1:2345%en0`.
+
+    On Windows, the returned interface cannot be used as an interface
+    identifier, as Windows uses numerical interface identifiers, e.g.
+    `fe80::abc:def1:2345%5`.
+
+    To get an interface identifier in a cross-platform compatible way,
+    use `uv_if_indextoiid()`.
+
+    Example:
+
+    ::
+
+        char ifname[UV_IF_NAMESIZE];
+        size_t size = sizeof(ifname);
+        uv_if_indextoname(sin6->sin6_scope_id, ifname, &size);
+
+    .. versionadded:: 1.16.0
+
+.. c:function:: int uv_if_indextoiid(unsigned int ifindex, char* buffer, size_t* size)
+
+    Retrieves a network interface identifier suitable for use in an IPv6 scoped
+    address. On Windows, returns the numeric `ifindex` as a string. On all other
+    platforms, `uv_if_indextoname()` is called. The result is written to
+    `buffer`, with `*size` indicating the length of `buffer`. If `buffer` is not
+    large enough to hold the result, then `UV_ENOBUFS` is returned, and `*size`
+    represents the size, including the NUL byte, required to hold the
+    result.
+
+    See `uv_if_indextoname` for further details.
+
+    .. versionadded:: 1.16.0
 
 .. c:function:: int uv_exepath(char* buffer, size_t* size)
 
@@ -348,7 +453,10 @@ API
 
     .. versionadded:: 1.9.0
 
-.. uint64_t uv_get_free_memory(void)
+.. c:function:: uint64_t uv_get_free_memory(void)
+
+    Gets memory information (in bytes).
+
 .. c:function:: uint64_t uv_get_total_memory(void)
 
     Gets memory information (in bytes).
@@ -447,3 +555,55 @@ API
     storage required to hold the value.
 
     .. versionadded:: 1.12.0
+
+    .. versionchanged:: 1.26.0 `UV_MAXHOSTNAMESIZE` is available and represents
+                               the maximum `buffer` size required to store a
+                               hostname and terminating `nul` character.
+
+.. c:function:: int uv_os_getpriority(uv_pid_t pid, int* priority)
+
+    Retrieves the scheduling priority of the process specified by `pid`. The
+    returned value of `priority` is between -20 (high priority) and 19 (low
+    priority).
+
+    .. note::
+        On Windows, the returned priority will equal one of the `UV_PRIORITY`
+        constants.
+
+    .. versionadded:: 1.23.0
+
+.. c:function:: int uv_os_setpriority(uv_pid_t pid, int priority)
+
+    Sets the scheduling priority of the process specified by `pid`. The
+    `priority` value range is between -20 (high priority) and 19 (low priority).
+    The constants `UV_PRIORITY_LOW`, `UV_PRIORITY_BELOW_NORMAL`,
+    `UV_PRIORITY_NORMAL`, `UV_PRIORITY_ABOVE_NORMAL`, `UV_PRIORITY_HIGH`, and
+    `UV_PRIORITY_HIGHEST` are also provided for convenience.
+
+    .. note::
+        On Windows, this function utilizes `SetPriorityClass()`. The `priority`
+        argument is mapped to a Windows priority class. When retrieving the
+        process priority, the result will equal one of the `UV_PRIORITY`
+        constants, and not necessarily the exact value of `priority`.
+
+    .. note::
+        On Windows, setting `PRIORITY_HIGHEST` will only work for elevated user,
+        for others it will be silently reduced to `PRIORITY_HIGH`.
+
+    .. versionadded:: 1.23.0
+
+.. c:function:: int uv_os_uname(uv_utsname_t* buffer)
+
+    Retrieves system information in `buffer`. The populated data includes the
+    operating system name, release, version, and machine. On non-Windows
+    systems, `uv_os_uname()` is a thin wrapper around :man:`uname(3)`. Returns
+    zero on success, and a non-zero error value otherwise.
+
+    .. versionadded:: 1.25.0
+
+.. c:function:: int uv_gettimeofday(uv_timeval64_t* tv)
+
+    Cross-platform implementation of :man:`gettimeofday(2)`. The timezone
+    argument to `gettimeofday()` is not supported, as it is considered obsolete.
+
+    .. versionadded:: 1.28.0

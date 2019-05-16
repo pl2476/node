@@ -95,16 +95,14 @@ child.exec(`${nodejs} --print "os.platform()"`,
            }));
 
 // Module path resolve bug regression test.
-const cwd = process.cwd();
-process.chdir(path.resolve(__dirname, '../../'));
 child.exec(`${nodejs} --eval "require('./test/parallel/test-cli-eval.js')"`,
+           { cwd: path.resolve(__dirname, '../../') },
            common.mustCall((err, stdout, stderr) => {
              assert.strictEqual(err.code, 42);
              assert.strictEqual(
                stdout, 'Loaded as a module, exiting with status code 42.\n');
              assert.strictEqual(stderr, '');
            }));
-process.chdir(cwd);
 
 // Missing argument should not crash.
 child.exec(`${nodejs} -e`, common.mustCall((err, stdout, stderr) => {
@@ -139,7 +137,10 @@ child.exec(`${nodejs} --use-strict -p process.execArgv`,
 
 // Regression test for https://github.com/nodejs/node/issues/3574.
 {
-  const emptyFile = fixtures.path('empty.js');
+  let emptyFile = fixtures.path('empty.js');
+  if (common.isWindows) {
+    emptyFile = emptyFile.replace(/\\/g, '\\\\');
+  }
 
   child.exec(`${nodejs} -e 'require("child_process").fork("${emptyFile}")'`,
              common.mustCall((err, stdout, stderr) => {

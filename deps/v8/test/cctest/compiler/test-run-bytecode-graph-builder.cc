@@ -4,7 +4,7 @@
 
 #include <utility>
 
-#include "src/compilation-info.h"
+#include "src/api-inl.h"
 #include "src/compiler/pipeline.h"
 #include "src/debug/debug-interface.h"
 #include "src/execution.h"
@@ -12,6 +12,7 @@
 #include "src/interpreter/bytecode-array-builder.h"
 #include "src/interpreter/interpreter.h"
 #include "src/objects-inl.h"
+#include "src/optimized-compilation-info.h"
 #include "src/parsing/parse-info.h"
 #include "test/cctest/cctest.h"
 
@@ -59,7 +60,7 @@ class BytecodeGraphCallable {
  public:
   BytecodeGraphCallable(Isolate* isolate, Handle<JSFunction> function)
       : isolate_(isolate), function_(function) {}
-  virtual ~BytecodeGraphCallable() {}
+  virtual ~BytecodeGraphCallable() = default;
 
   MaybeHandle<Object> operator()(A... args) {
     return CallFunction(isolate_, function_, args...);
@@ -75,12 +76,10 @@ class BytecodeGraphTester {
   BytecodeGraphTester(Isolate* isolate, const char* script,
                       const char* filter = kFunctionName)
       : isolate_(isolate), script_(script) {
-    i::FLAG_stress_fullcodegen = false;
     i::FLAG_always_opt = false;
     i::FLAG_allow_natives_syntax = true;
-    i::FLAG_loop_assignment_analysis = false;
   }
-  virtual ~BytecodeGraphTester() {}
+  virtual ~BytecodeGraphTester() = default;
 
   template <class... A>
   BytecodeGraphCallable<A...> GetCallable(
@@ -118,17 +117,20 @@ class BytecodeGraphTester {
         Handle<JSFunction>::cast(v8::Utils::OpenHandle(*api_function));
     CHECK(function->shared()->HasBytecodeArray());
 
-    // TODO(mstarzinger): We should be able to prime CompilationInfo without
-    // having to instantiate a ParseInfo first. Fix this!
-    ParseInfo parse_info(handle(function->shared()));
+    Zone zone(isolate_->allocator(), ZONE_NAME);
+    Handle<SharedFunctionInfo> shared(function->shared(), isolate_);
+    OptimizedCompilationInfo compilation_info(&zone, isolate_, shared,
+                                              function);
 
-    CompilationInfo compilation_info(parse_info.zone(), &parse_info,
-                                     function->GetIsolate(), function);
-    compilation_info.SetOptimizing();
-    compilation_info.MarkAsDeoptimizationEnabled();
-    compilation_info.MarkAsOptimizeFromBytecode();
-    Handle<Code> code = Pipeline::GenerateCodeForTesting(&compilation_info);
-    function->ReplaceCode(*code);
+    // Compiler relies on canonicalized handles, let's create
+    // a canonicalized scope and migrate existing handles there.
+    CanonicalHandleScope canonical(isolate_);
+    compilation_info.ReopenHandlesInNewHandleScope(isolate_);
+
+    Handle<Code> code =
+        Pipeline::GenerateCodeForTesting(&compilation_info, isolate_)
+            .ToHandleChecked();
+    function->set_code(*code);
 
     return function;
   }
@@ -296,103 +298,6 @@ TEST(BytecodeGraphBuilderTwoParameterTests) {
   }
 }
 
-class OneByteResource : public v8::String::ExternalOneByteStringResource {
- public:
-  OneByteResource(const char* data, size_t length)
-      : data_(data), length_(length) {}
-  ~OneByteResource() { i::DeleteArray(data_); }
-  virtual const char* data() const { return data_; }
-  virtual size_t length() const { return length_; }
-
- private:
-  const char* data_;
-  size_t length_;
-};
-
-TEST(BytecodeGraphBuilderStringConcat) {
-  HandleAndZoneScope scope;
-  Isolate* isolate = scope.main_isolate();
-  v8::Isolate* ext_isolate = reinterpret_cast<v8::Isolate*>(isolate);
-  Factory* factory = isolate->factory();
-
-  uc16 array1[] = {2001, 2002, 2003};
-  Vector<const uc16> two_byte_str_1(array1);
-
-  uc16 array2[] = {1001, 1002, 1003, 1004, 1005, 1006};
-  Vector<const uc16> two_byte_str_2(array2);
-
-  uc16 array3[] = {1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009};
-  Vector<const uc16> two_byte_str_3(array3);
-
-  OneByteResource* external_resource =
-      new OneByteResource(StrDup("external"), 8);
-  v8::Local<v8::String> ext_string_local =
-      v8::String::NewExternalOneByte(ext_isolate, external_resource)
-          .ToLocalChecked();
-  Handle<String> external_string = v8::Utils::OpenHandle(*ext_string_local);
-
-  Handle<String> thin_string =
-      factory->NewStringFromAsciiChecked("thin_string");
-  factory->InternalizeString(thin_string);
-  DCHECK_IMPLIES(FLAG_thin_strings, thin_string->IsThinString());
-
-  Handle<String> sliced_string =
-      factory->NewStringFromAsciiChecked("string that is going to be sliced");
-  sliced_string = factory->NewProperSubString(sliced_string, 2, 27);
-  DCHECK_IMPLIES(FLAG_string_slices, sliced_string->IsSlicedString());
-
-  Handle<String> inputs[] = {
-      factory->NewStringFromAsciiChecked(""),
-      factory->NewStringFromAsciiChecked("a"),
-      factory->NewStringFromAsciiChecked("abc"),
-      factory->NewStringFromAsciiChecked("underconsmin"),
-      factory->NewStringFromAsciiChecked("long string over cons min length"),
-      factory->NewStringFromTwoByte(two_byte_str_1).ToHandleChecked(),
-      factory->NewStringFromTwoByte(two_byte_str_2).ToHandleChecked(),
-      factory->NewStringFromTwoByte(two_byte_str_3).ToHandleChecked(),
-      factory
-          ->NewConsString(factory->NewStringFromAsciiChecked("foo"),
-                          factory->NewStringFromAsciiChecked("bar"))
-          .ToHandleChecked(),
-      factory
-          ->NewConsString(factory->empty_string(),
-                          factory->NewStringFromAsciiChecked("bar"))
-          .ToHandleChecked(),
-      factory
-          ->NewConsString(factory->NewStringFromAsciiChecked("foo"),
-                          factory->empty_string())
-          .ToHandleChecked(),
-      external_string,
-      thin_string,
-      sliced_string,
-  };
-
-  for (size_t i = 0; i < arraysize(inputs); i++) {
-    for (size_t j = 0; j < arraysize(inputs); j++) {
-      ScopedVector<char> script(1024);
-      SNPrintF(script,
-               "function %s(p1, p2) { return 'abc' + p1 + p2; }\n;"
-               "%s('a', 'b');",
-               kFunctionName, kFunctionName);
-
-      BytecodeGraphTester tester(isolate, script.start());
-      auto callable = tester.GetCallable<Handle<Object>, Handle<Object>>();
-      Handle<Object> return_value =
-          callable(inputs[i], inputs[j]).ToHandleChecked();
-
-      Handle<String> expected =
-          factory
-              ->NewConsString(
-                  factory
-                      ->NewConsString(factory->NewStringFromAsciiChecked("abc"),
-                                      inputs[i])
-                      .ToHandleChecked(),
-                  inputs[j])
-              .ToHandleChecked();
-      CHECK(return_value->SameValue(*expected));
-    }
-  }
-}
 
 TEST(BytecodeGraphBuilderNamedLoad) {
   HandleAndZoneScope scope;
@@ -714,9 +619,6 @@ TEST(BytecodeGraphBuilderCallRuntime) {
        {factory->true_value(), BytecodeGraphTester::NewObject("[1, 2, 3]")}},
       {"function f(arg0) { return %Add(arg0, 2) }\nf(1)",
        {factory->NewNumberFromInt(5), factory->NewNumberFromInt(3)}},
-      {"function f(arg0) { return %spread_arguments(arg0).length }\nf([])",
-       {factory->NewNumberFromInt(3),
-        BytecodeGraphTester::NewObject("[1, 2, 3]")}},
   };
 
   for (size_t i = 0; i < arraysize(snippets); i++) {
@@ -1435,25 +1337,26 @@ TEST(BytecodeGraphBuilderEvalGlobal) {
   }
 }
 
-bool get_compare_result(Token::Value opcode, Handle<Object> lhs_value,
-                        Handle<Object> rhs_value) {
+bool get_compare_result(Isolate* isolate, Token::Value opcode,
+                        Handle<Object> lhs_value, Handle<Object> rhs_value) {
   switch (opcode) {
     case Token::Value::EQ:
-      return Object::Equals(lhs_value, rhs_value).FromJust();
+      return Object::Equals(isolate, lhs_value, rhs_value).FromJust();
     case Token::Value::NE:
-      return !Object::Equals(lhs_value, rhs_value).FromJust();
+      return !Object::Equals(isolate, lhs_value, rhs_value).FromJust();
     case Token::Value::EQ_STRICT:
       return lhs_value->StrictEquals(*rhs_value);
     case Token::Value::NE_STRICT:
       return !lhs_value->StrictEquals(*rhs_value);
     case Token::Value::LT:
-      return Object::LessThan(lhs_value, rhs_value).FromJust();
+      return Object::LessThan(isolate, lhs_value, rhs_value).FromJust();
     case Token::Value::LTE:
-      return Object::LessThanOrEqual(lhs_value, rhs_value).FromJust();
+      return Object::LessThanOrEqual(isolate, lhs_value, rhs_value).FromJust();
     case Token::Value::GT:
-      return Object::GreaterThan(lhs_value, rhs_value).FromJust();
+      return Object::GreaterThan(isolate, lhs_value, rhs_value).FromJust();
     case Token::Value::GTE:
-      return Object::GreaterThanOrEqual(lhs_value, rhs_value).FromJust();
+      return Object::GreaterThanOrEqual(isolate, lhs_value, rhs_value)
+          .FromJust();
     default:
       UNREACHABLE();
   }
@@ -1509,8 +1412,8 @@ TEST(BytecodeGraphBuilderCompare) {
       for (size_t k = 0; k < arraysize(rhs_values); k++) {
         Handle<Object> return_value =
             callable(lhs_values[j], rhs_values[k]).ToHandleChecked();
-        bool result = get_compare_result(kCompareOperators[i], lhs_values[j],
-                                         rhs_values[k]);
+        bool result = get_compare_result(isolate, kCompareOperators[i],
+                                         lhs_values[j], rhs_values[k]);
         CHECK(return_value->SameValue(*factory->ToBoolean(result)));
       }
     }
@@ -2800,37 +2703,6 @@ void TestJumpWithConstantsAndWideConstants(size_t shard) {
 
 SHARD_TEST_BY_4(JumpWithConstantsAndWideConstants)
 
-TEST(BytecodeGraphBuilderDoExpressions) {
-  bool old_flag = FLAG_harmony_do_expressions;
-  FLAG_harmony_do_expressions = true;
-  HandleAndZoneScope scope;
-  Isolate* isolate = scope.main_isolate();
-  Factory* factory = isolate->factory();
-  ExpectedSnippet<0> snippets[] = {
-      {"var a = do {}; return a;", {factory->undefined_value()}},
-      {"var a = do { var x = 100; }; return a;", {factory->undefined_value()}},
-      {"var a = do { var x = 100; }; return a;", {factory->undefined_value()}},
-      {"var a = do { var x = 100; x++; }; return a;",
-       {handle(Smi::FromInt(100), isolate)}},
-      {"var i = 0; for (; i < 5;) { i = do { if (i == 3) { break; }; i + 1; }};"
-       "return i;",
-       {handle(Smi::FromInt(3), isolate)}},
-  };
-
-  for (size_t i = 0; i < arraysize(snippets); i++) {
-    ScopedVector<char> script(1024);
-    SNPrintF(script, "function %s() { %s }\n%s();", kFunctionName,
-             snippets[i].code_snippet, kFunctionName);
-
-    BytecodeGraphTester tester(isolate, script.start());
-    auto callable = tester.GetCallable<>();
-    Handle<Object> return_value = callable().ToHandleChecked();
-    CHECK(return_value->SameValue(*snippets[i].return_value()));
-  }
-
-  FLAG_harmony_do_expressions = old_flag;
-}
-
 TEST(BytecodeGraphBuilderWithStatement) {
   HandleAndZoneScope scope;
   Isolate* isolate = scope.main_isolate();
@@ -3019,7 +2891,7 @@ TEST(BytecodeGraphBuilderIllegalConstDeclaration) {
 
   ExpectedSnippet<0, const char*> illegal_const_decl[] = {
       {"const x = x = 10 + 3; return x;",
-       {"Uncaught ReferenceError: x is not defined"}},
+       {"Uncaught ReferenceError: Cannot access 'x' before initialization"}},
       {"const x = 10; x = 20; return x;",
        {"Uncaught TypeError: Assignment to constant variable."}},
       {"const x = 10; { x = 20; } return x;",
@@ -3027,7 +2899,7 @@ TEST(BytecodeGraphBuilderIllegalConstDeclaration) {
       {"const x = 10; eval('x = 20;'); return x;",
        {"Uncaught TypeError: Assignment to constant variable."}},
       {"let x = x + 10; return x;",
-       {"Uncaught ReferenceError: x is not defined"}},
+       {"Uncaught ReferenceError: Cannot access 'x' before initialization"}},
       {"'use strict'; (function f1() { f1 = 123; })() ",
        {"Uncaught TypeError: Assignment to constant variable."}},
   };
@@ -3066,8 +2938,7 @@ TEST(BytecodeGraphBuilderIllegalConstDeclaration) {
 class CountBreakDebugDelegate : public v8::debug::DebugDelegate {
  public:
   void BreakProgramRequested(v8::Local<v8::Context> paused_context,
-                             v8::Local<v8::Object> exec_state,
-                             v8::Local<v8::Value> break_points_hit) override {
+                             const std::vector<int>&) override {
     debug_break_count++;
   }
   int debug_break_count = 0;
@@ -3095,6 +2966,19 @@ TEST(BytecodeGraphBuilderDebuggerStatement) {
   CHECK(return_value.is_identical_to(snippet.return_value()));
   CHECK_EQ(2, delegate.debug_break_count);
 }
+
+#undef SHARD_TEST_BY_2
+#undef SHARD_TEST_BY_4
+#undef SPACE
+#undef REPEAT_2
+#undef REPEAT_4
+#undef REPEAT_8
+#undef REPEAT_16
+#undef REPEAT_32
+#undef REPEAT_64
+#undef REPEAT_128
+#undef REPEAT_256
+#undef REPEAT_127
 
 }  // namespace compiler
 }  // namespace internal

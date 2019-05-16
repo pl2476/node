@@ -4,6 +4,7 @@
 
 #include "src/v8.h"
 
+#include "src/api-inl.h"
 #include "src/compiler/pipeline.h"
 #include "src/handles.h"
 #include "src/interpreter/bytecode-generator.h"
@@ -48,7 +49,7 @@ struct TestCaseData {
   const char* arguments() const { return arguments_; }
 
  private:
-  TestCaseData();
+  TestCaseData() = delete;
 
   const char* const script_;
   const char* const declaration_parameters_;
@@ -110,15 +111,13 @@ class OptimizedBytecodeSourcePositionTester final {
   explicit OptimizedBytecodeSourcePositionTester(Isolate* isolate)
       : isolate_(isolate) {
     SaveOptimizationFlags();
-    saved_flag_stress_fullcodegen_ = FLAG_stress_fullcodegen;
-    FLAG_stress_fullcodegen = false;
     saved_flag_always_opt_ = FLAG_always_opt;
     FLAG_always_opt = false;
+    FLAG_enable_lazy_source_positions = false;
   }
 
   ~OptimizedBytecodeSourcePositionTester() {
     RestoreOptimizationFlags();
-    FLAG_stress_fullcodegen = saved_flag_stress_fullcodegen_;
     FLAG_always_opt = saved_flag_always_opt_;
   }
 
@@ -143,7 +142,6 @@ class OptimizedBytecodeSourcePositionTester final {
 
   Isolate* isolate_;
   int saved_optimization_bitmap_;
-  bool saved_flag_stress_fullcodegen_;
   bool saved_flag_always_opt_;
 };
 
@@ -174,7 +172,7 @@ Handle<BytecodeArray> OptimizedBytecodeSourcePositionTester::MakeBytecode(
           .ToLocalChecked());
   Handle<JSFunction> function =
       Handle<JSFunction>::cast(v8::Utils::OpenHandle(*api_function));
-  return handle(function->shared()->bytecode_array());
+  return handle(function->shared()->GetBytecodeArray(), isolate_);
 }
 
 void OptimizedBytecodeSourcePositionTester::SetOptimizationFlags(

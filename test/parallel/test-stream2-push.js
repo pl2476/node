@@ -27,7 +27,7 @@ const { Readable, Writable } = require('stream');
 const EE = require('events').EventEmitter;
 
 
-// a mock thing a bit like the net.Socket/tcp_wrap.handle interaction
+// A mock thing a bit like the net.Socket/tcp_wrap.handle interaction
 
 const stream = new Readable({
   highWaterMark: 16,
@@ -48,7 +48,7 @@ stream.on('end', function() {
 
 source.on('data', function(chunk) {
   const ret = stream.push(chunk);
-  console.error('data', stream._readableState.length);
+  console.error('data', stream.readableLength);
   if (!ret)
     readStop();
 });
@@ -89,7 +89,7 @@ const expectWritten =
     'asdfgasdfgasdfgasdfg' ];
 
 writer._write = function(chunk, encoding, cb) {
-  console.error('WRITE %s', chunk);
+  console.error(`WRITE ${chunk}`);
   written.push(chunk);
   process.nextTick(cb);
 };
@@ -97,7 +97,7 @@ writer._write = function(chunk, encoding, cb) {
 writer.on('finish', finish);
 
 
-// now emit some chunks.
+// Now emit some chunks.
 
 const chunk = 'asdfg';
 

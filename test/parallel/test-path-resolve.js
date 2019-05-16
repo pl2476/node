@@ -1,5 +1,6 @@
 'use strict';
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 const assert = require('assert');
 const child = require('child_process');
 const path = require('path');
@@ -10,7 +11,7 @@ const backslashRE = /\\/g;
 
 const resolveTests = [
   [ path.win32.resolve,
-    // arguments                               result
+    // Arguments                               result
     [[['c:/blah\\blah', 'd:/games', 'c:../a'], 'c:\\blah\\a'],
      [['c:/ignore', 'd:\\a/b\\c/d', '\\e.exe'], 'd:\\e.exe'],
      [['c:/ignore', 'c:/some/file'], 'c:\\some\\file'],
@@ -27,7 +28,7 @@ const resolveTests = [
     ]
   ],
   [ path.posix.resolve,
-    // arguments                    result
+    // Arguments                    result
     [[['/var/lib', '../', 'file/'], '/var/file'],
      [['/var/lib', '/../', 'file/'], '/file'],
      [['a/b/c/', '../../..'], process.cwd()],
@@ -62,7 +63,7 @@ if (common.isWindows) {
   // Test resolving the current Windows drive letter from a spawned process.
   // See https://github.com/nodejs/node/issues/7215
   const currentDriveLetter = path.parse(process.cwd()).root.substring(0, 2);
-  const resolveFixture = path.join(common.fixturesDir, 'path-resolve.js');
+  const resolveFixture = fixtures.path('path-resolve.js');
   const spawnResult = child.spawnSync(
     process.argv[0], [resolveFixture, currentDriveLetter]);
   const resolvedPath = spawnResult.stdout.toString().trim();

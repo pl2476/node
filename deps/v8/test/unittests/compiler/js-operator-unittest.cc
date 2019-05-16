@@ -11,6 +11,7 @@
 namespace v8 {
 namespace internal {
 namespace compiler {
+namespace js_operator_unittest {
 
 // -----------------------------------------------------------------------------
 // Shared operators.
@@ -42,11 +43,9 @@ const SharedOperator kSharedOperators[] = {
   }
     SHARED(ToNumber, Operator::kNoProperties, 1, 1, 1, 1, 1, 1, 2),
     SHARED(ToString, Operator::kNoProperties, 1, 1, 1, 1, 1, 1, 2),
-    SHARED(ToPrimitiveToString, Operator::kNoProperties, 1, 1, 1, 1, 1, 1, 2),
     SHARED(ToName, Operator::kNoProperties, 1, 1, 1, 1, 1, 1, 2),
     SHARED(ToObject, Operator::kFoldable, 1, 1, 1, 1, 1, 1, 2),
     SHARED(Create, Operator::kNoProperties, 2, 1, 1, 1, 1, 1, 2),
-    SHARED(TypeOf, Operator::kPure, 1, 0, 0, 0, 1, 0, 0),
 #undef SHARED
 };
 
@@ -109,10 +108,10 @@ TEST_P(JSSharedOperatorTest, Properties) {
   EXPECT_EQ(sop.properties, op->properties());
 }
 
+INSTANTIATE_TEST_SUITE_P(JSOperatorTest, JSSharedOperatorTest,
+                         ::testing::ValuesIn(kSharedOperators));
 
-INSTANTIATE_TEST_CASE_P(JSOperatorTest, JSSharedOperatorTest,
-                        ::testing::ValuesIn(kSharedOperators));
-
+}  // namespace js_operator_unittest
 }  // namespace compiler
 }  // namespace internal
 }  // namespace v8

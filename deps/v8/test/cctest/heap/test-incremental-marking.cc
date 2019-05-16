@@ -16,7 +16,6 @@
 
 #include "src/v8.h"
 
-#include "src/full-codegen/full-codegen.h"
 #include "src/global-handles.h"
 #include "src/heap/incremental-marking.h"
 #include "src/heap/spaces.h"
@@ -30,63 +29,78 @@ using v8::Isolate;
 
 namespace v8 {
 namespace internal {
+namespace heap {
 
-class MockPlatform : public v8::Platform {
+class MockPlatform : public TestPlatform {
  public:
-  explicit MockPlatform(v8::Platform* platform)
-      : platform_(platform), task_(nullptr) {}
-  virtual ~MockPlatform() { delete task_; }
-
-  void CallOnBackgroundThread(Task* task,
-                              ExpectedRuntime expected_runtime) override {
-    platform_->CallOnBackgroundThread(task, expected_runtime);
+  MockPlatform()
+      : taskrunner_(new MockTaskRunner()),
+        old_platform_(i::V8::GetCurrentPlatform()) {
+    // Now that it's completely constructed, make this the current platform.
+    i::V8::SetPlatformForTesting(this);
+  }
+  ~MockPlatform() override {
+    i::V8::SetPlatformForTesting(old_platform_);
+    for (auto& task : worker_tasks_) {
+      old_platform_->CallOnWorkerThread(std::move(task));
+    }
+    worker_tasks_.clear();
   }
 
-  void CallOnForegroundThread(v8::Isolate* isolate, Task* task) override {
-    task_ = task;
+  std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(
+      v8::Isolate* isolate) override {
+    return taskrunner_;
   }
 
-  void CallDelayedOnForegroundThread(v8::Isolate* isolate, Task* task,
-                                     double delay_in_seconds) override {
-    platform_->CallDelayedOnForegroundThread(isolate, task, delay_in_seconds);
-  }
-
-  double MonotonicallyIncreasingTime() override {
-    return platform_->MonotonicallyIncreasingTime();
-  }
-
-  void CallIdleOnForegroundThread(v8::Isolate* isolate,
-                                  IdleTask* task) override {
-    platform_->CallIdleOnForegroundThread(isolate, task);
+  void CallOnWorkerThread(std::unique_ptr<Task> task) override {
+    worker_tasks_.push_back(std::move(task));
   }
 
   bool IdleTasksEnabled(v8::Isolate* isolate) override { return false; }
 
-  v8::TracingController* GetTracingController() override {
-    return platform_->GetTracingController();
-  }
+  bool PendingTask() { return taskrunner_->PendingTask(); }
 
-  bool PendingTask() { return task_ != nullptr; }
-
-  void PerformTask() {
-    Task* task = task_;
-    task_ = nullptr;
-    task->Run();
-    delete task;
-  }
+  void PerformTask() { taskrunner_->PerformTask(); }
 
  private:
-  v8::Platform* platform_;
-  Task* task_;
+  class MockTaskRunner : public v8::TaskRunner {
+   public:
+    void PostTask(std::unique_ptr<v8::Task> task) override {
+      task_ = std::move(task);
+    }
+
+    void PostDelayedTask(std::unique_ptr<Task> task,
+                         double delay_in_seconds) override {
+      task_ = std::move(task);
+    }
+
+    void PostIdleTask(std::unique_ptr<IdleTask> task) override {
+      UNREACHABLE();
+    }
+
+    bool IdleTasksEnabled() override { return false; }
+
+    bool PendingTask() { return task_ != nullptr; }
+
+    void PerformTask() {
+      std::unique_ptr<Task> task = std::move(task_);
+      task->Run();
+    }
+
+   private:
+    std::unique_ptr<Task> task_;
+  };
+
+  std::shared_ptr<MockTaskRunner> taskrunner_;
+  std::vector<std::unique_ptr<Task>> worker_tasks_;
+  v8::Platform* old_platform_;
 };
 
 TEST(IncrementalMarkingUsingTasks) {
   if (!i::FLAG_incremental_marking) return;
   FLAG_stress_incremental_marking = false;
   CcTest::InitializeVM();
-  v8::Platform* old_platform = i::V8::GetCurrentPlatform();
-  MockPlatform platform(old_platform);
-  i::V8::SetPlatformForTesting(&platform);
+  MockPlatform platform;
   i::heap::SimulateFullSpace(CcTest::heap()->old_space());
   i::IncrementalMarking* marking = CcTest::heap()->incremental_marking();
   marking->Stop();
@@ -96,8 +110,8 @@ TEST(IncrementalMarkingUsingTasks) {
     platform.PerformTask();
   }
   CHECK(marking->IsStopped());
-  i::V8::SetPlatformForTesting(old_platform);
 }
 
+}  // namespace heap
 }  // namespace internal
 }  // namespace v8

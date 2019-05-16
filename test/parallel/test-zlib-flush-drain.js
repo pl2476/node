@@ -12,7 +12,7 @@ const opts = {
 
 const deflater = zlib.createDeflate(opts);
 
-// shim deflater.flush so we can count times executed
+// Shim deflater.flush so we can count times executed
 let flushCount = 0;
 let drainCount = 0;
 
@@ -38,13 +38,11 @@ deflater.on('drain', function() {
 
 process.once('exit', function() {
   assert.strictEqual(
-    beforeFlush, true,
-    'before calling flush, writable stream should need to drain');
+    beforeFlush, true);
   assert.strictEqual(
-    afterFlush, false,
-    'after calling flush, writable stream should not need to drain');
+    afterFlush, false);
   assert.strictEqual(
-    drainCount, 1, 'the deflater should have emitted a single drain event');
+    drainCount, 1);
   assert.strictEqual(
-    flushCount, 2, 'flush should be called twice');
+    flushCount, 1);
 });

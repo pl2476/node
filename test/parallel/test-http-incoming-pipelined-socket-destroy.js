@@ -21,11 +21,13 @@
 
 'use strict';
 const common = require('../common');
+const Countdown = require('../common/countdown');
 
 const http = require('http');
 const net = require('net');
 
 const seeds = [ 3, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4 ];
+const countdown = new Countdown(seeds.length, () => server.close());
 
 // Set up some timing issues where sockets can be destroyed
 // via either the req or res.
@@ -43,7 +45,7 @@ const server = http.createServer(common.mustCall(function(req, res) {
         server.emit('requestDone');
       });
 
-    // in one case, actually send a response in 2 chunks
+    // In one case, actually send a response in 2 chunks
     case '/3':
       res.write('hello ');
       return setImmediate(function() {
@@ -60,9 +62,10 @@ const server = http.createServer(common.mustCall(function(req, res) {
 
 // Make a bunch of requests pipelined on the same socket
 function generator(seeds) {
+  const port = server.address().port;
   return seeds.map(function(r) {
-    return 'GET /' + r + ' HTTP/1.1\r\n' +
-           `Host: localhost:${server.address().port}\r\n` +
+    return `GET /${r} HTTP/1.1\r\n` +
+           `Host: localhost:${port}\r\n` +
            '\r\n' +
            '\r\n';
   }).join('');
@@ -71,14 +74,11 @@ function generator(seeds) {
 
 server.listen(0, common.mustCall(function() {
   const client = net.connect({ port: this.address().port });
-  let done = 0;
   server.on('requestDone', function() {
-    if (++done === seeds.length) {
-      server.close();
-    }
+    countdown.dec();
   });
 
-  // immediately write the pipelined requests.
+  // Immediately write the pipelined requests.
   // Some of these will not have a socket to destroy!
   client.write(generator(seeds));
 }));

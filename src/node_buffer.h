@@ -22,16 +22,14 @@
 #ifndef SRC_NODE_BUFFER_H_
 #define SRC_NODE_BUFFER_H_
 
-#include "node_internals.h"
+#include "node.h"
+#include "v8.h"
 
 namespace node {
 
-extern bool zero_fill_all_buffers;
-
 namespace Buffer {
 
-static const unsigned int kMaxLength =
-    sizeof(int32_t) == sizeof(intptr_t) ? 0x3fffffff : 0x7fffffff;
+static const unsigned int kMaxLength = v8::TypedArray::kMaxLength;
 
 typedef void (*FreeCallback)(char* data, void* hint);
 

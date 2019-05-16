@@ -1,4 +1,3 @@
-// Flags: --expose-http2
 'use strict';
 
 const common = require('../common');
@@ -11,7 +10,7 @@ const options = {};
 
 const server = http2.createServer(options);
 
-// options are defaulted but the options are not modified
+// Options are defaulted but the options are not modified
 assert.deepStrictEqual(Object.keys(options), []);
 
 server.on('stream', common.mustCall((stream) => {
@@ -45,6 +44,6 @@ server.listen(0, common.mustCall(() => {
   req.resume();
   req.on('end', common.mustCall(() => {
     server.close();
-    client.destroy();
+    client.close();
   }));
 }));

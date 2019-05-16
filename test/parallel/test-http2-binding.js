@@ -1,14 +1,13 @@
-// Flags: --expose-http2
+// Flags: --expose-internals
 'use strict';
 
 const common = require('../common');
 if (!common.hasCrypto)
   common.skip('missing crypto');
 const assert = require('assert');
+const { internalBinding } = require('internal/test/binding');
 
-assert.doesNotThrow(() => process.binding('http2'));
-
-const binding = process.binding('http2');
+const binding = internalBinding('http2');
 const http2 = require('http2');
 
 assert(binding.Http2Session);
@@ -23,7 +22,7 @@ assert.strictEqual(settings.maxFrameSize, 16384);
 assert.strictEqual(binding.nghttp2ErrorString(-517),
                    'GOAWAY has already been sent');
 
-// assert constants are present
+// Assert constants are present
 assert(binding.constants);
 assert.strictEqual(typeof binding.constants, 'object');
 const constants = binding.constants;
@@ -32,6 +31,7 @@ const expectedStatusCodes = {
   HTTP_STATUS_CONTINUE: 100,
   HTTP_STATUS_SWITCHING_PROTOCOLS: 101,
   HTTP_STATUS_PROCESSING: 102,
+  HTTP_STATUS_EARLY_HINTS: 103,
   HTTP_STATUS_OK: 200,
   HTTP_STATUS_CREATED: 201,
   HTTP_STATUS_ACCEPTED: 202,
@@ -99,6 +99,7 @@ const expectedHeaderNames = {
   HTTP2_HEADER_AUTHORITY: ':authority',
   HTTP2_HEADER_SCHEME: ':scheme',
   HTTP2_HEADER_PATH: ':path',
+  HTTP2_HEADER_PROTOCOL: ':protocol',
   HTTP2_HEADER_DATE: 'date',
   HTTP2_HEADER_ACCEPT_CHARSET: 'accept-charset',
   HTTP2_HEADER_ACCEPT_ENCODING: 'accept-encoding',
@@ -219,7 +220,8 @@ const expectedNGConstants = {
   NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS: 3,
   NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE: 4,
   NGHTTP2_SETTINGS_MAX_FRAME_SIZE: 5,
-  NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE: 6
+  NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE: 6,
+  NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL: 8
 };
 
 const defaultSettings = {
@@ -231,16 +233,16 @@ const defaultSettings = {
 
 for (const name of Object.keys(constants)) {
   if (name.startsWith('HTTP_STATUS_')) {
-    assert.strictEqual(expectedStatusCodes[name], constants[name],
+    assert.strictEqual(constants[name], expectedStatusCodes[name],
                        `Expected status code match for ${name}`);
   } else if (name.startsWith('HTTP2_HEADER_')) {
-    assert.strictEqual(expectedHeaderNames[name], constants[name],
+    assert.strictEqual(constants[name], expectedHeaderNames[name],
                        `Expected header name match for ${name}`);
   } else if (name.startsWith('NGHTTP2_')) {
-    assert.strictEqual(expectedNGConstants[name], constants[name],
+    assert.strictEqual(constants[name], expectedNGConstants[name],
                        `Expected ng constant match for ${name}`);
   } else if (name.startsWith('DEFAULT_SETTINGS_')) {
-    assert.strictEqual(defaultSettings[name], constants[name],
+    assert.strictEqual(constants[name], defaultSettings[name],
                        `Expected default setting match for ${name}`);
   }
 }

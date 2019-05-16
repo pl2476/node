@@ -14,10 +14,7 @@ let nsuccess = 0;
 let nerror = 0;
 
 function loadDHParam(n) {
-  const params = [`dh${n}.pem`];
-  if (n !== 'error')
-    params.unshift('keys');
-  return fixtures.readSync(params);
+  return fixtures.readKey(`dh${n}.pem`);
 }
 
 function test(size, err, next) {
@@ -38,7 +35,7 @@ function test(size, err, next) {
   });
 
   server.listen(0, '127.0.0.1', function() {
-    // client set minimum DH parameter size to 2048 bits so that
+    // Client set minimum DH parameter size to 2048 bits so that
     // it fails when it make a connection to the tls server where
     // dhparams is 1024 bits
     const client = tls.connect({

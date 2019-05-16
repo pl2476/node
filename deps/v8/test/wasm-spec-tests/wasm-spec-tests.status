@@ -5,7 +5,6 @@
 [
 [ALWAYS, {
   #TODO(ahaas): Add additional stack checks on mips.
-  # Issue 6318: Stack checks for functions with huge stack frames fail on x64 and ia32
   'tests/skip-stack-guard-page': [PASS, ['arch == mipsel or arch == mips64el or ((arch == ppc or arch == ppc64 or arch == s390 or arch == s390x) and simulator_run)', SKIP]],
 }],  # ALWAYS
 
@@ -43,5 +42,17 @@
   'tests/f32': [SKIP],
   'tests/f64': [SKIP],
 }],  # 'arch == s390 or arch == s390x'
+
+##############################################################################
+['lite_mode or variant == jitless', {
+  # TODO(v8:7777): Re-enable once wasm is supported in jitless mode.
+  '*': [SKIP],
+}], # lite_mode or variant == jitless
+
+##############################################################################
+['variant == jitless and not embedded_builtins', {
+  '*': [SKIP],
+}], # variant == jitless and not embedded_builtins
+
 
 ]

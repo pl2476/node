@@ -33,10 +33,12 @@
 #include "src/debug/debug.h"
 #include "src/disasm.h"
 #include "src/disassembler.h"
+#include "src/frames-inl.h"
 #include "src/macro-assembler.h"
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
+namespace v8 {
+namespace internal {
 
 bool prev_instr_compact_branch = false;
 
@@ -68,14 +70,14 @@ bool DisassembleAndCompare(byte* pc, const char* compare_string) {
 // Set up V8 to a state where we can at least run the assembler and
 // disassembler. Declare the variables and allocate the data structures used
 // in the rest of the macros.
-#define SET_UP()                                          \
-  CcTest::InitializeVM();                                 \
-  Isolate* isolate = CcTest::i_isolate();                  \
-  HandleScope scope(isolate);                             \
-  byte *buffer = reinterpret_cast<byte*>(malloc(4*1024)); \
-  Assembler assm(isolate, buffer, 4*1024);                \
+#define SET_UP()                                             \
+  CcTest::InitializeVM();                                    \
+  Isolate* isolate = CcTest::i_isolate();                    \
+  HandleScope scope(isolate);                                \
+  byte* buffer = reinterpret_cast<byte*>(malloc(4 * 1024));  \
+  Assembler assm(AssemblerOptions{},                         \
+                 ExternalAssemblerBuffer(buffer, 4 * 1024)); \
   bool failure = false;
-
 
 // This macro assembles one instruction using the preallocated assembler and
 // disassembles the generated instruction, comparing the output to the expected
@@ -142,14 +144,14 @@ if (failure) { \
 #define COMPARE_PC_JUMP(asm_, compare_string, target)                          \
   {                                                                            \
     int pc_offset = assm.pc_offset();                                          \
-    byte *progcounter = &buffer[pc_offset];                                    \
+    byte* progcounter = &buffer[pc_offset];                                    \
     char str_with_address[100];                                                \
     int instr_index = (target >> 2) & kImm26Mask;                              \
     snprintf(                                                                  \
         str_with_address, sizeof(str_with_address), "%s %p -> %p",             \
-        compare_string, reinterpret_cast<void *>(target),                      \
-        reinterpret_cast<void *>(((uint32_t)(progcounter + 4) & ~0xfffffff) |  \
-                                 (instr_index << 2)));                         \
+        compare_string, reinterpret_cast<void*>(target),                       \
+        reinterpret_cast<void*>(((uint32_t)(progcounter + 4) & ~0xFFFFFFF) |   \
+                                (instr_index << 2)));                          \
     assm.asm_;                                                                 \
     if (!DisassembleAndCompare(progcounter, str_with_address)) failure = true; \
   }
@@ -157,10 +159,9 @@ if (failure) { \
 #define GET_PC_REGION(pc_region)                                         \
   {                                                                      \
     int pc_offset = assm.pc_offset();                                    \
-    byte *progcounter = &buffer[pc_offset];                              \
-    pc_region = reinterpret_cast<int32_t>(progcounter + 4) & ~0xfffffff; \
+    byte* progcounter = &buffer[pc_offset];                              \
+    pc_region = reinterpret_cast<int32_t>(progcounter + 4) & ~0xFFFFFFF; \
   }
-
 
 TEST(Type0) {
   SET_UP();
@@ -502,12 +503,12 @@ TEST(Type0) {
 
   int32_t target = pc_region | 0x4;
   COMPARE_PC_JUMP(j(target), "08000001       j      ", target);
-  target = pc_region | 0xffffffc;
+  target = pc_region | 0xFFFFFFC;
   COMPARE_PC_JUMP(j(target), "0bffffff       j      ", target);
 
   target = pc_region | 0x4;
   COMPARE_PC_JUMP(jal(target), "0c000001       jal    ", target);
-  target = pc_region | 0xffffffc;
+  target = pc_region | 0xFFFFFFC;
   COMPARE_PC_JUMP(jal(target), "0fffffff       jal    ", target);
 
   COMPARE(addiu(a0, a1, 0x0),
@@ -1116,6 +1117,18 @@ TEST(madd_msub_maddf_msubf) {
     COMPARE(maddf_d(f4, f8, f10), "462a4118       maddf.d  f4, f8, f10");
     COMPARE(msubf_s(f4, f8, f10), "460a4119       msubf.s  f4, f8, f10");
     COMPARE(msubf_d(f4, f8, f10), "462a4119       msubf.d  f4, f8, f10");
+  }
+  VERIFY_RUN();
+}
+
+TEST(atomic_load_store) {
+  SET_UP();
+  if (IsMipsArchVariant(kMips32r6)) {
+    COMPARE(ll(v0, MemOperand(v1, -1)), "7c62ffb6       ll      v0, -1(v1)");
+    COMPARE(sc(v0, MemOperand(v1, 1)), "7c6200a6       sc      v0, 1(v1)");
+  } else {
+    COMPARE(ll(v0, MemOperand(v1, -1)), "c062ffff       ll      v0, -1(v1)");
+    COMPARE(sc(v0, MemOperand(v1, 1)), "e0620001       sc      v0, 1(v1)");
   }
   VERIFY_RUN();
 }
@@ -1801,3 +1814,6 @@ TEST(MSA_BIT) {
   }
   VERIFY_RUN();
 }
+
+}  // namespace internal
+}  // namespace v8

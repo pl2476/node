@@ -32,23 +32,30 @@ from testrunner.local import testsuite
 from testrunner.objects import testcase
 
 
-class PreparserTestSuite(testsuite.TestSuite):
-  def __init__(self, name, root):
-    super(PreparserTestSuite, self).__init__(name, root)
+class VariantsGenerator(testsuite.VariantsGenerator):
+  def _get_variants(self, test):
+    return self._standard_variant
 
-  def shell(self):
-    return "d8"
 
+class TestLoader(testsuite.TestLoader):
+  def _list_test_filenames(self):
+    for file in os.listdir(self.suite.root):
+      if file.endswith(".pyt"):
+        yield file[:-4]
+
+
+# TODO(tmrts): refactor the python template parsing then use the TestLoader.
+class TestSuite(testsuite.TestSuite):
   def _ParsePythonTestTemplates(self, result, filename):
     pathname = os.path.join(self.root, filename + ".pyt")
-    def Test(name, source, expectation, extra_flags=[]):
+    def Test(name, source, expectation):
       source = source.replace("\n", " ")
-      testname = os.path.join(filename, name)
-      flags = ["-e", source]
+      path = os.path.join(filename, name)
       if expectation:
-        flags += ["--throws"]
-      flags += extra_flags
-      test = testcase.TestCase(self, testname, flags=flags)
+        template_flags = ["--throws"]
+      else:
+        template_flags = []
+      test = self._create_test(path, source, template_flags)
       result.append(test)
     def Template(name, source):
       def MkTest(replacement, expectation):
@@ -61,26 +68,59 @@ class PreparserTestSuite(testsuite.TestSuite):
       return MkTest
     execfile(pathname, {"Test": Test, "Template": Template})
 
-  def ListTests(self, context):
+  def ListTests(self):
     result = []
 
-    # Find all .pyt files in this directory.
-    filenames = [f[:-4] for f in os.listdir(self.root) if f.endswith(".pyt")]
-    filenames.sort()
-    for f in filenames:
+    filenames = self._test_loader._list_test_filenames()
+    for f in sorted(filenames):
       self._ParsePythonTestTemplates(result, f)
+
+    # TODO: remove after converting to use a full TestLoader
+    self._test_loader.test_count_estimation = len(result)
     return result
 
-  def GetFlagsForTestCase(self, testcase, context):
-    return testcase.flags
+  def _create_test(self, path, source, template_flags):
+    return self._test_loader._create_test(
+        path, self, source=source, template_flags=template_flags)
 
-  def GetSourceForTest(self, testcase):
-    assert testcase.flags[0] == "-e"
-    return testcase.flags[1]
+  def _test_loader_class(self):
+    return TestLoader
 
-  def _VariantGeneratorFactory(self):
-    return testsuite.StandardVariantGenerator
+  def _test_class(self):
+    return TestCase
+
+  def _variants_gen_class(self):
+    return VariantsGenerator
 
 
-def GetSuite(name, root):
-  return PreparserTestSuite(name, root)
+class TestCase(testcase.D8TestCase):
+  def __init__(self, suite, path, name, test_config, source, template_flags):
+    super(TestCase, self).__init__(suite, path, name, test_config)
+
+    self._source = source
+    self._template_flags = template_flags
+
+  def _get_cmd_params(self):
+    return (
+        self._get_files_params() +
+        self._get_extra_flags() +
+        ['-e', self._source] +
+        self._template_flags +
+        self._get_variant_flags() +
+        self._get_statusfile_flags() +
+        self._get_mode_flags() +
+        self._get_source_flags()
+    )
+
+  def _get_mode_flags(self):
+    return []
+
+  def is_source_available(self):
+    return True
+
+  def get_source(self):
+    return self._source
+
+
+def GetSuite(*args, **kwargs):
+  return TestSuite(*args, **kwargs)

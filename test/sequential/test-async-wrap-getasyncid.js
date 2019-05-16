@@ -1,11 +1,17 @@
 'use strict';
+// Flags: --expose-gc --expose-internals --no-warnings
 
 const common = require('../common');
+const { internalBinding } = require('internal/test/binding');
 const assert = require('assert');
 const fs = require('fs');
+const v8 = require('v8');
+const fsPromises = fs.promises;
 const net = require('net');
-const providers = Object.assign({}, process.binding('async_wrap').Providers);
+const providers = Object.assign({}, internalBinding('async_wrap').Providers);
 const fixtures = require('../common/fixtures');
+const tmpdir = require('../common/tmpdir');
+const { getSystemErrorName } = require('util');
 
 // Make sure that all Providers are tested.
 {
@@ -17,18 +23,38 @@ const fixtures = require('../common/fixtures');
     },
   }).enable();
   process.on('beforeExit', common.mustCall(() => {
+    // This garbage collection call verifies that the wraps being garbage
+    // collected doesn't resurrect the process again due to weirdly timed
+    // uv_close calls and other similar instruments in destructors.
+    global.gc();
+
     process.removeAllListeners('uncaughtException');
     hooks.disable();
     delete providers.NONE;  // Should never be used.
 
+    // See test/pseudo-tty/test-async-wrap-getasyncid-tty.js
+    // Requires an 'actual' tty fd to be available.
+    delete providers.TTYWRAP;
+
     // TODO(jasnell): Test for these
     delete providers.HTTP2SESSION;
-    delete providers.HTTP2SESSIONSHUTDOWNWRAP;
+    delete providers.HTTP2STREAM;
+    delete providers.HTTP2PING;
+    delete providers.HTTP2SETTINGS;
+    // TODO(addaleax): Test for these
+    delete providers.STREAMPIPE;
+    delete providers.MESSAGEPORT;
+    delete providers.WORKER;
+    if (!common.isMainThread)
+      delete providers.INSPECTORJSBINDING;
+    delete providers.KEYPAIRGENREQUEST;
+    delete providers.HTTPCLIENTREQUEST;
+    delete providers.HTTPINCOMINGMESSAGE;
 
-    const obj_keys = Object.keys(providers);
-    if (obj_keys.length > 0)
-      process._rawDebug(obj_keys);
-    assert.strictEqual(obj_keys.length, 0);
+    const objKeys = Object.keys(providers);
+    if (objKeys.length > 0)
+      process._rawDebug(objKeys);
+    assert.strictEqual(objKeys.length, 0);
   }));
 }
 
@@ -47,7 +73,7 @@ function testInitialized(req, ctor_name) {
 
 
 {
-  const cares = process.binding('cares_wrap');
+  const cares = internalBinding('cares_wrap');
   const dns = require('dns');
 
   testUninitialized(new cares.GetAddrInfoReqWrap(), 'GetAddrInfoReqWrap');
@@ -66,13 +92,13 @@ function testInitialized(req, ctor_name) {
 
 
 {
-  const FSEvent = process.binding('fs_event_wrap').FSEvent;
+  const FSEvent = internalBinding('fs_event_wrap').FSEvent;
   testInitialized(new FSEvent(), 'FSEvent');
 }
 
 
 {
-  const JSStream = process.binding('js_stream').JSStream;
+  const JSStream = internalBinding('js_stream').JSStream;
   testInitialized(new JSStream(), 'JSStream');
 }
 
@@ -85,41 +111,39 @@ function testInitialized(req, ctor_name) {
 }
 
 
-if (common.hasCrypto) { // eslint-disable-line crypto-check
-  const tls = require('tls');
-  // SecurePair
-  testInitialized(tls.createSecurePair().ssl, 'Connection');
-}
-
-
-if (common.hasCrypto) { // eslint-disable-line crypto-check
+if (common.hasCrypto) { // eslint-disable-line node-core/crypto-check
   const crypto = require('crypto');
 
   // The handle for PBKDF2 and RandomBytes isn't returned by the function call,
   // so need to check it from the callback.
 
   const mc = common.mustCall(function pb() {
-    testInitialized(this, 'PBKDF2');
+    testInitialized(this, 'AsyncWrap');
   });
   crypto.pbkdf2('password', 'salt', 1, 20, 'sha256', mc);
 
   crypto.randomBytes(1, common.mustCall(function rb() {
-    testInitialized(this, 'RandomBytes');
+    testInitialized(this, 'AsyncWrap');
   }));
+
+  if (typeof internalBinding('crypto').scrypt === 'function') {
+    crypto.scrypt('password', 'salt', 8, common.mustCall(function() {
+      testInitialized(this, 'AsyncWrap');
+    }));
+  }
 }
 
 
 {
-  const binding = process.binding('fs');
+  const binding = internalBinding('fs');
   const path = require('path');
 
-  const FSReqWrap = binding.FSReqWrap;
-  const req = new FSReqWrap();
+  const FSReqCallback = binding.FSReqCallback;
+  const req = new FSReqCallback();
   req.oncomplete = () => { };
 
-  testUninitialized(req, 'FSReqWrap');
-  binding.access(path._makeLong('../'), fs.F_OK, req);
-  testInitialized(req, 'FSReqWrap');
+  testInitialized(req, 'FSReqCallback');
+  binding.access(path.toNamespacedPath('../'), fs.F_OK, req);
 
   const StatWatcher = binding.StatWatcher;
   testInitialized(new StatWatcher(), 'StatWatcher');
@@ -127,8 +151,11 @@ if (common.hasCrypto) { // eslint-disable-line crypto-check
 
 
 {
-  const HTTPParser = process.binding('http_parser').HTTPParser;
-  testInitialized(new HTTPParser(), 'HTTPParser');
+  const { HTTPParser } = require('_http_common');
+  const parser = new HTTPParser();
+  testUninitialized(parser, 'HTTPParser');
+  parser.initialize(HTTPParser.REQUEST, {});
+  testInitialized(parser, 'HTTPParser');
 }
 
 
@@ -137,51 +164,68 @@ if (common.hasCrypto) { // eslint-disable-line crypto-check
   testInitialized(new Gzip()._handle, 'Zlib');
 }
 
-
 {
-  const binding = process.binding('pipe_wrap');
-  const handle = new binding.Pipe();
+  const binding = internalBinding('pipe_wrap');
+  const handle = new binding.Pipe(binding.constants.IPC);
   testInitialized(handle, 'Pipe');
-  const req = new binding.PipeConnectWrap();
-  testUninitialized(req, 'PipeConnectWrap');
-  req.address = common.PIPE;
-  req.oncomplete = common.mustCall(() => handle.close());
-  handle.connect(req, req.address, req.oncomplete);
-  testInitialized(req, 'PipeConnectWrap');
 }
 
+{
+  tmpdir.refresh();
+
+  const server = net.createServer(common.mustCall((socket) => {
+    server.close();
+  })).listen(common.PIPE, common.mustCall(() => {
+    const binding = internalBinding('pipe_wrap');
+    const handle = new binding.Pipe(binding.constants.SOCKET);
+    testInitialized(handle, 'Pipe');
+    const req = new binding.PipeConnectWrap();
+    testUninitialized(req, 'PipeConnectWrap');
+    req.address = common.PIPE;
+    req.oncomplete = common.mustCall(() => handle.close());
+    handle.connect(req, req.address, req.oncomplete);
+    testInitialized(req, 'PipeConnectWrap');
+  }));
+}
 
 {
-  const Process = process.binding('process_wrap').Process;
+  const Process = internalBinding('process_wrap').Process;
   testInitialized(new Process(), 'Process');
 }
 
 {
-  const Signal = process.binding('signal_wrap').Signal;
+  const { Signal } = internalBinding('signal_wrap');
   testInitialized(new Signal(), 'Signal');
 }
 
+{
+  async function openTest() {
+    const fd = await fsPromises.open(__filename, 'r');
+    testInitialized(fd, 'FileHandle');
+    await fd.close();
+  }
+  openTest().then(common.mustCall());
+}
 
 {
-  const binding = process.binding('stream_wrap');
+  const binding = internalBinding('stream_wrap');
   testUninitialized(new binding.WriteWrap(), 'WriteWrap');
 }
 
 {
-  const stream_wrap = process.binding('stream_wrap');
-  const tcp_wrap = process.binding('tcp_wrap');
+  const stream_wrap = internalBinding('stream_wrap');
+  const tcp_wrap = internalBinding('tcp_wrap');
   const server = net.createServer(common.mustCall((socket) => {
     server.close();
-    socket.on('data', (x) => {
+    socket.on('data', () => {
       socket.end();
       socket.destroy();
     });
     socket.resume();
   })).listen(0, common.localhostIPv4, common.mustCall(() => {
-    const handle = new tcp_wrap.TCP();
+    const handle = new tcp_wrap.TCP(tcp_wrap.constants.SOCKET);
     const req = new tcp_wrap.TCPConnectWrap();
     const sreq = new stream_wrap.ShutdownWrap();
-    const wreq = new stream_wrap.WriteWrap();
     testInitialized(handle, 'TCP');
     testUninitialized(req, 'TCPConnectWrap');
     testUninitialized(sreq, 'ShutdownWrap');
@@ -190,20 +234,25 @@ if (common.hasCrypto) { // eslint-disable-line crypto-check
       handle.close();
     });
 
-    wreq.handle = handle;
-    wreq.oncomplete = common.mustCall(() => {
-      handle.shutdown(sreq);
-      testInitialized(sreq, 'ShutdownWrap');
-    });
-    wreq.async = true;
-
-    req.oncomplete = common.mustCall(() => {
-      // Use a long string to make sure the write happens asynchronously.
+    req.oncomplete = common.mustCall(writeData);
+    function writeData() {
+      const wreq = new stream_wrap.WriteWrap();
+      wreq.handle = handle;
+      wreq.oncomplete = () => {
+        handle.shutdown(sreq);
+        testInitialized(sreq, 'ShutdownWrap');
+      };
       const err = handle.writeLatin1String(wreq, 'hi'.repeat(100000));
       if (err)
-        throw new Error(`write failed: ${process.binding('uv').errname(err)}`);
+        throw new Error(`write failed: ${getSystemErrorName(err)}`);
+      if (!stream_wrap.streamBaseState[stream_wrap.kLastWriteWasAsync]) {
+        testUninitialized(wreq, 'WriteWrap');
+        // Synchronous finish. Write more data until we hit an
+        // asynchronous write.
+        return writeData();
+      }
       testInitialized(wreq, 'WriteWrap');
-    });
+    }
     req.address = common.localhostIPv4;
     req.port = server.address().port;
     const err = handle.connect(req, req.address, req.port);
@@ -213,15 +262,9 @@ if (common.hasCrypto) { // eslint-disable-line crypto-check
 }
 
 
-{
-  const TimerWrap = process.binding('timer_wrap').Timer;
-  testInitialized(new TimerWrap(), 'Timer');
-}
-
-
-if (common.hasCrypto) { // eslint-disable-line crypto-check
-  const TCP = process.binding('tcp_wrap').TCP;
-  const tcp = new TCP();
+if (common.hasCrypto) { // eslint-disable-line node-core/crypto-check
+  const { TCP, constants: TCPConstants } = internalBinding('tcp_wrap');
+  const tcp = new TCP(TCPConstants.SOCKET);
 
   const ca = fixtures.readSync('test_ca.pem', 'ascii');
   const cert = fixtures.readSync('test_cert.pem', 'ascii');
@@ -230,46 +273,35 @@ if (common.hasCrypto) { // eslint-disable-line crypto-check
   const credentials = require('tls').createSecureContext({ ca, cert, key });
 
   // TLSWrap is exposed, but needs to be instantiated via tls_wrap.wrap().
-  const tls_wrap = process.binding('tls_wrap');
-  testInitialized(
-    tls_wrap.wrap(tcp._externalStream, credentials.context, true), 'TLSWrap');
+  const tls_wrap = internalBinding('tls_wrap');
+  testInitialized(tls_wrap.wrap(tcp, credentials.context, true), 'TLSWrap');
 }
 
-
 {
-  // Do our best to grab a tty fd.
-  const tty_fd = common.getTTYfd();
-  if (tty_fd >= 0) {
-    const tty_wrap = process.binding('tty_wrap');
-    // fd may still be invalid, so guard against it.
-    const handle = (() => {
-      try {
-        return new tty_wrap.TTY(tty_fd, false);
-      } catch (e) {
-        return null;
-      }
-    })();
-    if (handle !== null)
-      testInitialized(handle, 'TTY');
-    else
-      delete providers.TTYWRAP;
-  } else {
-    delete providers.TTYWRAP;
-  }
-}
-
-
-{
-  const binding = process.binding('udp_wrap');
+  const binding = internalBinding('udp_wrap');
   const handle = new binding.UDP();
   const req = new binding.SendWrap();
   testInitialized(handle, 'UDP');
   testUninitialized(req, 'SendWrap');
 
-  handle.bind('0.0.0.0', common.PORT, undefined);
+  handle.bind('0.0.0.0', 0, undefined);
+  const addr = {};
+  handle.getsockname(addr);
   req.address = '127.0.0.1';
-  req.port = common.PORT;
+  req.port = addr.port;
   req.oncomplete = () => handle.close();
   handle.send(req, [Buffer.alloc(1)], 1, req.port, req.address, true);
   testInitialized(req, 'SendWrap');
+}
+
+if (process.features.inspector && common.isMainThread) {
+  const binding = internalBinding('inspector');
+  const handle = new binding.Connection(() => {});
+  testInitialized(handle, 'Connection');
+  handle.disconnect();
+}
+
+// PROVIDER_HEAPDUMP
+{
+  v8.getHeapSnapshot().destroy();
 }

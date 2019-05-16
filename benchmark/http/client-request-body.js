@@ -11,13 +11,10 @@ const bench = common.createBenchmark(main, {
   method: ['write', 'end']
 });
 
-function main(conf) {
-  const dur = +conf.dur;
-  const len = +conf.len;
-
+function main({ dur, len, type, method }) {
   var encoding;
   var chunk;
-  switch (conf.type) {
+  switch (type) {
     case 'buf':
       chunk = Buffer.alloc(len, 'x');
       break;
@@ -40,22 +37,22 @@ function main(conf) {
     method: 'POST'
   };
 
-  const server = http.createServer(function(req, res) {
+  const server = http.createServer((req, res) => {
     res.end();
   });
-  server.listen(options.port, options.host, function() {
+  server.listen(options.port, options.host, () => {
     setTimeout(done, dur * 1000);
     bench.start();
     pummel();
   });
 
   function pummel() {
-    const req = http.request(options, function(res) {
+    const req = http.request(options, (res) => {
       nreqs++;
       pummel();  // Line up next request.
       res.resume();
     });
-    if (conf.method === 'write') {
+    if (method === 'write') {
       req.write(chunk, encoding);
       req.end();
     } else {

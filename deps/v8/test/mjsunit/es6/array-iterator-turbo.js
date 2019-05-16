@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 // Flags: --turbo-escape --allow-natives-syntax --no-always-opt
-// Flags: --opt --turbo-filter=*
+// Flags: --opt --turbo-filter=* --no-force-slow-path
 
 "use strict";
 
@@ -217,7 +217,7 @@ let tests = {
 
       // Throw when detached
       let clone = new array.constructor(array);
-      %ArrayBufferNeuter(clone.buffer);
+      %ArrayBufferDetach(clone.buffer);
       assertThrows(() => sum(clone), TypeError);
 
       // Clear the slate for the next iteration.

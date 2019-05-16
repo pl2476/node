@@ -17,9 +17,9 @@ parameter count: 1
 bytecode array length: 10
 bytecodes: [
   /*   26 E> */ B(StackCheck),
-  /*   31 S> */ B(LdaGlobal), U8(0), U8(3),
-                B(Inc), U8(7),
-  /*   40 E> */ B(StaGlobalSloppy), U8(0), U8(5),
+  /*   31 S> */ B(LdaGlobal), U8(0), U8(0),
+                B(Inc), U8(2),
+  /*   40 E> */ B(StaGlobal), U8(0), U8(3),
   /*   47 S> */ B(Return),
 ]
 constant pool: [
@@ -36,14 +36,14 @@ snippet: "
 "
 frame size: 1
 parameter count: 1
-bytecode array length: 17
+bytecode array length: 16
 bytecodes: [
   /*   26 E> */ B(StackCheck),
-  /*   31 S> */ B(LdaGlobal), U8(0), U8(3),
-                B(ToNumber), R(0), U8(7),
-                B(Ldar), R(0),
-                B(Dec), U8(7),
-  /*   44 E> */ B(StaGlobalSloppy), U8(0), U8(5),
+  /*   31 S> */ B(LdaGlobal), U8(0), U8(0),
+                B(ToNumeric), U8(2),
+                B(Star), R(0),
+                B(Dec), U8(2),
+  /*   44 E> */ B(StaGlobal), U8(0), U8(3),
                 B(Ldar), R(0),
   /*   47 S> */ B(Return),
 ]
@@ -64,9 +64,9 @@ parameter count: 1
 bytecode array length: 10
 bytecodes: [
   /*   27 E> */ B(StackCheck),
-  /*   46 S> */ B(LdaGlobal), U8(0), U8(3),
-                B(Dec), U8(7),
-  /*   55 E> */ B(StaGlobalStrict), U8(0), U8(5),
+  /*   46 S> */ B(LdaGlobal), U8(0), U8(0),
+                B(Dec), U8(2),
+  /*   55 E> */ B(StaGlobal), U8(0), U8(3),
   /*   67 S> */ B(Return),
 ]
 constant pool: [
@@ -83,14 +83,14 @@ snippet: "
 "
 frame size: 1
 parameter count: 1
-bytecode array length: 17
+bytecode array length: 16
 bytecodes: [
   /*   27 E> */ B(StackCheck),
-  /*   32 S> */ B(LdaGlobal), U8(0), U8(3),
-                B(ToNumber), R(0), U8(7),
-                B(Ldar), R(0),
-                B(Inc), U8(7),
-  /*   50 E> */ B(StaGlobalSloppy), U8(0), U8(5),
+  /*   32 S> */ B(LdaGlobal), U8(0), U8(0),
+                B(ToNumeric), U8(2),
+                B(Star), R(0),
+                B(Inc), U8(2),
+  /*   50 E> */ B(StaGlobal), U8(0), U8(3),
                 B(Ldar), R(0),
   /*   53 S> */ B(Return),
 ]

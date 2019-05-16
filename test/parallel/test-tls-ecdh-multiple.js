@@ -26,7 +26,7 @@ const options = {
   ecdhCurve: 'secp256k1:prime256v1:secp521r1'
 };
 
-const reply = 'I AM THE WALRUS'; // something recognizable
+const reply = 'I AM THE WALRUS'; // Something recognizable
 
 const server = tls.createServer(options, function(conn) {
   conn.end(reply);
@@ -39,10 +39,6 @@ server.listen(0, function() {
                 '-cipher', `${options.ciphers}`,
                 '-connect', `127.0.0.1:${this.address().port}`];
 
-  // for the performance and stability issue in s_client on Windows
-  if (common.isWindows)
-    args.push('-no_rand_screen');
-
   const client = spawn(common.opensslCli, args);
 
   client.stdout.on('data', function(data) {
@@ -52,7 +48,7 @@ server.listen(0, function() {
   });
 
   client.on('exit', function(code) {
-    assert.strictEqual(0, code);
+    assert.strictEqual(code, 0);
     server.close();
   });
 
@@ -74,7 +70,7 @@ process.on('exit', function() {
     unsupportedCurves.push('brainpoolP256r1');
 
   unsupportedCurves.forEach((ecdhCurve) => {
-    assert.throws(() => tls.createServer({ ecdhCurve: ecdhCurve }),
+    assert.throws(() => tls.createServer({ ecdhCurve }),
                   /Error: Failed to set ECDH curve/);
   });
 });

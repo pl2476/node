@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --allow-natives-syntax --no-always-opt --opt --no-stress-fullcodegen --block-coverage
+// Flags: --allow-natives-syntax --no-always-opt --opt
+// Flags: --no-stress-flush-bytecode
 
 var source =
 `
@@ -74,7 +75,7 @@ InspectorTest.runTestSuite([
       .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
       .then(GC)
       .then(Protocol.Profiler.enable)
-      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true}))
+      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true, detailed: true}))
       .then(Protocol.Profiler.takePreciseCoverage)
       .then(LogSorted)
       .then(Protocol.Profiler.takePreciseCoverage)
@@ -89,7 +90,7 @@ InspectorTest.runTestSuite([
   {
     Protocol.Runtime.enable()
       .then(Protocol.Profiler.enable)
-      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true}))
+      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true, detailed: true}))
       .then(() => Protocol.Runtime.compileScript({ expression: source, sourceURL: arguments.callee.name, persistScript: true }))
       .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
       .then(InspectorTest.logMessage)
@@ -108,7 +109,7 @@ InspectorTest.runTestSuite([
   {
     Protocol.Runtime.enable()
       .then(Protocol.Profiler.enable)
-      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true}))
+      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true, detailed: true}))
       .then(() => Protocol.Runtime.compileScript({ expression: source, sourceURL: arguments.callee.name, persistScript: true }))
       .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
       .then(InspectorTest.logMessage)
@@ -162,7 +163,7 @@ InspectorTest.runTestSuite([
   {
     Protocol.Runtime.enable()
     .then(Protocol.Profiler.enable)
-    .then(Protocol.Profiler.startPreciseCoverage)
+    .then(() => Protocol.Profiler.startPreciseCoverage({detailed: true}))
     .then(() => Protocol.Runtime.compileScript({ expression: source, sourceURL: arguments.callee.name, persistScript: true }))
     .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
     .then(InspectorTest.logMessage)
@@ -182,7 +183,7 @@ InspectorTest.runTestSuite([
   {
     Protocol.Runtime.enable()
       .then(Protocol.Profiler.enable)
-      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true}))
+      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true, detailed: true}))
       .then(() => Protocol.Runtime.compileScript({ expression: source, sourceURL: arguments.callee.name, persistScript: true }))
       .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
       .then(InspectorTest.logMessage)
@@ -202,7 +203,7 @@ InspectorTest.runTestSuite([
   {
     function handleDebuggerPause() {
       Protocol.Profiler.enable()
-          .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true}))
+          .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true, detailed: true}))
           .then(Protocol.Debugger.resume)
     }
     Protocol.Debugger.enable();
@@ -226,7 +227,7 @@ InspectorTest.runTestSuite([
   {
     Protocol.Runtime.enable()
       .then(Protocol.Profiler.enable)
-      .then(Protocol.Profiler.startPreciseCoverage)
+      .then(() => Protocol.Profiler.startPreciseCoverage({detailed: true}))
       .then(() => Protocol.Runtime.compileScript({ expression: source, sourceURL: arguments.callee.name, persistScript: true }))
       .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
       .then(InspectorTest.logMessage)
@@ -257,7 +258,7 @@ InspectorTest.runTestSuite([
       .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
       .then(ClearAndGC)
       .then(Protocol.Profiler.enable)
-      .then(Protocol.Profiler.startPreciseCoverage)
+      .then(() => Protocol.Profiler.startPreciseCoverage({detailed: true}))
       .then(Protocol.Profiler.takePreciseCoverage)
       .then(LogSorted)
       .then(Protocol.Profiler.stopPreciseCoverage)
@@ -271,7 +272,7 @@ InspectorTest.runTestSuite([
   {
     Protocol.Runtime.enable()
       .then(Protocol.Profiler.enable)
-      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true}))
+      .then(() => Protocol.Profiler.startPreciseCoverage({callCount: true, detailed: true}))
       .then(() => Protocol.Runtime.compileScript({ expression: nested, sourceURL: arguments.callee.name, persistScript: true }))
       .then((result) => Protocol.Runtime.runScript({ scriptId: result.result.scriptId }))
       .then(InspectorTest.logMessage)

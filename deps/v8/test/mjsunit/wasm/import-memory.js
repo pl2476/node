@@ -4,8 +4,10 @@
 
 // Flags: --expose-wasm
 
-load("test/mjsunit/wasm/wasm-constants.js");
 load("test/mjsunit/wasm/wasm-module-builder.js");
+
+// V8 internal memory size limit.
+var kV8MaxPages = 32767;
 
 (function TestOne() {
   print("TestOne");
@@ -109,7 +111,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   }
 })();
 
-(function TestGrowMemoryMaxDesc() {
+(function TestMemoryGrowMaxDesc() {
   print("MaximumDescriptor");
   let memory = new WebAssembly.Memory({initial: 1, maximum: 5});
   assertEquals(kPageSize, memory.buffer.byteLength);
@@ -147,9 +149,8 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   assertThrows(() => memory.grow(1));
 })();
 
-(function TestGrowMemoryZeroInitialMemory() {
+(function TestMemoryGrowZeroInitialMemory() {
   print("ZeroInitialMemory");
-  let kV8MaxPages = 32767;
   let memory = new WebAssembly.Memory({initial: 0});
   assertEquals(0, memory.buffer.byteLength);
   let i32 = new Int32Array(memory.buffer);
@@ -186,7 +187,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   assertEquals(2*kPageSize, memory.buffer.byteLength);
   let builder = new WasmModuleBuilder();
   builder.addFunction("grow", kSig_i_i)
-      .addBody([kExprGetLocal, 0, kExprGrowMemory, kMemoryZero])
+      .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
       .exportFunc();
   builder.addImportedMemory("cat", "mine");
   let instance = builder.instantiate({cat: {mine: memory}});
@@ -198,8 +199,8 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   assertThrows(() => memory.grow(1));
 })();
 
-(function TestGrowMemoryExportedMaximum() {
-  print("TestGrowMemoryExportedMaximum");
+(function TestMemoryGrowExportedMaximum() {
+  print("TestMemoryGrowExportedMaximum");
   let initial_size = 1, maximum_size = 10;
   var exp_instance;
   {
@@ -216,7 +217,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
       .addBody([kExprMemorySize, kMemoryZero])
       .exportFunc();
     builder.addFunction("grow", kSig_i_i)
-      .addBody([kExprGetLocal, 0, kExprGrowMemory, kMemoryZero])
+      .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
       .exportFunc();
     instance = builder.instantiate({fur: {
       imported_mem: exp_instance.exports.exported_mem}});
@@ -237,7 +238,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
     .addBody([kExprMemorySize, kMemoryZero])
     .exportAs("mem_size");
   builder.addFunction("grow", kSig_i_i)
-    .addBody([kExprGetLocal, 0, kExprGrowMemory, kMemoryZero])
+    .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
     .exportFunc();
   var module = new WebAssembly.Module(builder.toBuffer());
   var instances = [];
@@ -256,7 +257,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   verify_mem_size(1);
 
   // Verify memory size with interleaving calls to Memory.grow,
-  // GrowMemory opcode.
+  // MemoryGrow opcode.
   var current_mem_size = 1;
   for (var i = 0; i < 5; i++) {
     function grow(pages) { return instances[i].exports.grow(pages); }
@@ -278,7 +279,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
     .addBody([kExprMemorySize, kMemoryZero])
     .exportFunc();
   builder.addFunction("grow", kSig_i_i)
-    .addBody([kExprGetLocal, 0, kExprGrowMemory, kMemoryZero])
+    .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
     .exportFunc();
   var instances = [];
   for (var i = 0; i < 5; i++) {
@@ -326,9 +327,6 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
 })();
 
 (function TestExportImportedMemoryGrowMultipleInstances() {
-  // TODO(gdeepti):Exported memory objects currently do not take max_size
-  // into account so this can grow past the maximum specified in the exported
-  // memory object. Assert that growing past maximum for exported objects fails.
   print("TestExportImportedMemoryGrowMultipleInstances");
   var instance;
   {
@@ -346,7 +344,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
     .addBody([kExprMemorySize, kMemoryZero])
     .exportFunc();
   builder.addFunction("grow", kSig_i_i)
-    .addBody([kExprGetLocal, 0, kExprGrowMemory, kMemoryZero])
+    .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
     .exportFunc();
   var instances = [];
   for (var i = 0; i < 10; i++) {
@@ -364,6 +362,40 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
     assertEquals(current_mem_size, instances[i].exports.grow(1));
     verify_mem_size(++current_mem_size);
   }
+  for (var i = 0; i < 10; i++) {
+    assertEquals(-1, instances[i].exports.grow(1));
+    verify_mem_size(current_mem_size);
+  }
+})();
+
+(function TestExportImportedMemoryGrowPastV8Maximum() {
+  // The spec maximum is higher than the internal V8 maximum. This test only
+  // checks that grow_memory does not grow past the internally defined maximum
+  // to reflect the current implementation even when the memory is exported.
+  print("TestExportImportedMemoryGrowPastV8Maximum");
+  var instance_1, instance_2;
+  {
+    let builder = new WasmModuleBuilder();
+    builder.addMemory(1, kSpecMaxPages, true);
+    builder.exportMemoryAs("exported_mem");
+    builder.addFunction("grow", kSig_i_i)
+      .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
+      .exportFunc();
+    instance_1 = builder.instantiate();
+  }
+  {
+    let builder = new WasmModuleBuilder();
+    builder.addImportedMemory("doo", "imported_mem");
+    builder.addFunction("grow", kSig_i_i)
+      .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
+      .exportFunc();
+    instance_2 = builder.instantiate({
+      doo: {imported_mem: instance_1.exports.exported_mem}});
+  }
+  assertEquals(1, instance_1.exports.grow(20));
+  assertEquals(21, instance_2.exports.grow(20));
+  assertEquals(-1, instance_1.exports.grow(kV8MaxPages - 40));
+  assertEquals(-1, instance_2.exports.grow(kV8MaxPages - 40));
 })();
 
 (function TestExportGrow() {
@@ -375,7 +407,7 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
     .addBody([kExprMemorySize, kMemoryZero])
     .exportFunc();
   builder.addFunction("grow", kSig_i_i)
-    .addBody([kExprGetLocal, 0, kExprGrowMemory, kMemoryZero])
+    .addBody([kExprGetLocal, 0, kExprMemoryGrow, kMemoryZero])
     .exportFunc();
   instance = builder.instantiate();
   assertEquals(kPageSize, instance.exports.exported_mem.buffer.byteLength);
@@ -411,4 +443,30 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   assertTrue(buffer !== memory.buffer);
   assertEquals(0, buffer.byteLength);
   assertEquals(3*kPageSize, memory.buffer.byteLength);
+})();
+
+(function TestInitialMemorySharedModule() {
+  print("TestInitialMemorySharedModule");
+  var builder = new WasmModuleBuilder();
+  builder.addImportedMemory("m", "imported_mem");
+  builder.addFunction('f', kSig_i_v)
+      .addBody([
+        kExprI32Const, 0x1d,                       // --
+        kExprI32Const, 0x20,                       // --
+        kExprI32StoreMem, 0, 0,  // --
+        kExprI32Const, 0x1d,                       // --
+        kExprI32LoadMem, 0, 0,  // --
+      ])
+      .exportFunc();
+
+  // First instance load/store success
+  var module = new WebAssembly.Module(builder.toBuffer());
+  let memory1= new WebAssembly.Memory({initial: 1, maximum: 20});
+  let instance1  = new WebAssembly.Instance(module, {m: {imported_mem: memory1}});
+  assertEquals(0x20, instance1.exports.f());
+
+  // Second instance should trap as it has no initial memory
+  let memory2= new WebAssembly.Memory({initial: 0, maximum: 2});
+  let instance2  = new WebAssembly.Instance(module, {m: {imported_mem: memory2}});
+  assertTraps(kTrapMemOutOfBounds, () => instance2.exports.f());
 })();

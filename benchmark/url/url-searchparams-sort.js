@@ -3,6 +3,7 @@ const common = require('../common.js');
 const URLSearchParams = require('url').URLSearchParams;
 
 const inputs = {
+  wpt: 'wpt',  // To work around tests
   empty: '',
   sorted: 'a&b&c&d&e&f&g&h&i&j&k&l&m&n&o&p&q&r&s&t&u&v&w&x&y&z',
   almostsorted: 'a&b&c&d&e&f&g&i&h&j&k&l&m&n&o&p&q&r&s&t&u&w&v&x&y&z',
@@ -31,16 +32,14 @@ const bench = common.createBenchmark(main, {
   flags: ['--expose-internals']
 });
 
-function main(conf) {
+function main({ type, n }) {
   const searchParams = require('internal/url').searchParamsSymbol;
-  const input = inputs[conf.type];
-  const n = conf.n | 0;
+  const input = inputs[type];
   const params = new URLSearchParams();
   const array = getParams(input);
 
-  var i;
   bench.start();
-  for (i = 0; i < n; i++) {
+  for (var i = 0; i < n; i++) {
     params[searchParams] = array.slice();
     params.sort();
   }

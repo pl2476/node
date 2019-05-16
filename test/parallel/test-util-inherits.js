@@ -2,20 +2,15 @@
 
 const common = require('../common');
 const assert = require('assert');
-const inherits = require('util').inherits;
-const errCheck = common.expectsError({
-  code: 'ERR_INVALID_ARG_TYPE',
-  type: TypeError,
-  message: 'The "superCtor" argument must be of type function'
-});
+const { inherits } = require('util');
 
-// super constructor
+// Super constructor
 function A() {
   this._a = 'a';
 }
 A.prototype.a = function() { return this._a; };
 
-// one level of inheritance
+// One level of inheritance
 function B(value) {
   A.call(this);
   this._b = value;
@@ -23,14 +18,22 @@ function B(value) {
 inherits(B, A);
 B.prototype.b = function() { return this._b; };
 
-assert.strictEqual(B.super_, A);
+assert.deepStrictEqual(
+  Object.getOwnPropertyDescriptor(B, 'super_'),
+  {
+    value: A,
+    enumerable: false,
+    configurable: true,
+    writable: true
+  }
+);
 
 const b = new B('b');
 assert.strictEqual(b.a(), 'a');
 assert.strictEqual(b.b(), 'b');
 assert.strictEqual(b.constructor, B);
 
-// two levels of inheritance
+// Two levels of inheritance
 function C() {
   B.call(this, 'b');
   this._c = 'c';
@@ -45,7 +48,7 @@ const c = new C();
 assert.strictEqual(c.getValue(), 'abc');
 assert.strictEqual(c.constructor, C);
 
-// inherits can be called after setting prototype properties
+// Inherits can be called after setting prototype properties
 function D() {
   C.call(this);
   this._d = 'd';
@@ -79,23 +82,29 @@ assert.strictEqual(e.d(), 'd');
 assert.strictEqual(e.e(), 'e');
 assert.strictEqual(e.constructor, E);
 
-// should throw with invalid arguments
-assert.throws(function() {
+// Should throw with invalid arguments
+common.expectsError(function() {
   inherits(A, {});
-}, common.expectsError({
+}, {
   code: 'ERR_INVALID_ARG_TYPE',
   type: TypeError,
-  message: 'The "superCtor.prototype" property must be of type function'
-})
-);
-assert.throws(function() {
+  message: 'The "superCtor.prototype" property must be of type Object. ' +
+           'Received type undefined'
+});
+
+common.expectsError(function() {
   inherits(A, null);
-}, errCheck);
-assert.throws(function() {
-  inherits(null, A);
-}, common.expectsError({
+}, {
   code: 'ERR_INVALID_ARG_TYPE',
   type: TypeError,
-  message: 'The "ctor" argument must be of type function'
-})
-);
+  message: 'The "superCtor" argument must be of type Function. ' +
+           'Received type object'
+});
+
+common.expectsError(function() {
+  inherits(null, A);
+}, {
+  code: 'ERR_INVALID_ARG_TYPE',
+  type: TypeError,
+  message: 'The "ctor" argument must be of type Function. Received type object'
+});

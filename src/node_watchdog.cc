@@ -20,8 +20,11 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "node_watchdog.h"
-#include "node_internals.h"
 #include <algorithm>
+#include "debug_utils.h"
+#include "node_errors.h"
+#include "node_internals.h"
+#include "util-inl.h"
 
 namespace node {
 
@@ -37,7 +40,11 @@ Watchdog::Watchdog(v8::Isolate* isolate, uint64_t ms, bool* timed_out)
                "Failed to initialize uv loop.");
   }
 
-  rc = uv_async_init(loop_, &async_, &Watchdog::Async);
+  rc = uv_async_init(loop_, &async_, [](uv_async_t* signal) {
+    Watchdog* w = ContainerOf(&Watchdog::async_, signal);
+    uv_stop(w->loop_);
+  });
+
   CHECK_EQ(0, rc);
 
   rc = uv_timer_init(loop_, &timer_);
@@ -60,8 +67,7 @@ Watchdog::~Watchdog() {
   // UV_RUN_DEFAULT so that libuv has a chance to clean up.
   uv_run(loop_, UV_RUN_DEFAULT);
 
-  int rc = uv_loop_close(loop_);
-  CHECK_EQ(0, rc);
+  CheckedUvLoopClose(loop_);
   delete loop_;
   loop_ = nullptr;
 }
@@ -78,13 +84,6 @@ void Watchdog::Run(void* arg) {
   // Close the timer handle on this side and let ~Watchdog() close async_
   uv_close(reinterpret_cast<uv_handle_t*>(&wd->timer_), nullptr);
 }
-
-
-void Watchdog::Async(uv_async_t* async) {
-  Watchdog* w = ContainerOf(&Watchdog::async_, async);
-  uv_stop(w->loop_);
-}
-
 
 void Watchdog::Timer(uv_timer_t* timer) {
   Watchdog* w = ContainerOf(&Watchdog::timer_, timer);
@@ -186,7 +185,9 @@ int SigintWatchdogHelper::Start() {
 
   sigset_t sigmask;
   sigfillset(&sigmask);
-  CHECK_EQ(0, pthread_sigmask(SIG_SETMASK, &sigmask, &sigmask));
+  sigset_t savemask;
+  CHECK_EQ(0, pthread_sigmask(SIG_SETMASK, &sigmask, &savemask));
+  sigmask = savemask;
   int ret = pthread_create(&thread_, nullptr, RunSigintWatchdog, nullptr);
   CHECK_EQ(0, pthread_sigmask(SIG_SETMASK, &sigmask, nullptr));
   if (ret != 0) {

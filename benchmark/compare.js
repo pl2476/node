@@ -1,6 +1,7 @@
 'use strict';
 
-const fork = require('child_process').fork;
+const { fork } = require('child_process');
+const { inspect } = require('util');
 const path = require('path');
 const CLI = require('./_cli.js');
 const BenchmarkProgress = require('./_benchmark_progress.js');
@@ -24,7 +25,6 @@ const cli = CLI(`usage: ./node compare.js [options] [--] <category> ...
 
 if (!cli.optional.new || !cli.optional.old) {
   cli.abort(cli.usage);
-  return;
 }
 
 const binaries = ['old', 'new'];
@@ -71,12 +71,12 @@ if (showProgress) {
     execPath: cli.optional[job.binary]
   });
 
-  child.on('message', function(data) {
+  child.on('message', (data) => {
     if (data.type === 'report') {
       // Construct configuration string, " A=a, B=b, ..."
       let conf = '';
       for (const key of Object.keys(data.conf)) {
-        conf += ` ${key}=${JSON.stringify(data.conf[key])}`;
+        conf += ` ${key}=${inspect(data.conf[key])}`;
       }
       conf = conf.slice(1);
       // Escape quotes (") for correct csv formatting
@@ -94,10 +94,9 @@ if (showProgress) {
     }
   });
 
-  child.once('close', function(code) {
+  child.once('close', (code) => {
     if (code) {
       process.exit(code);
-      return;
     }
     if (showProgress) {
       progress.completeRun(job);

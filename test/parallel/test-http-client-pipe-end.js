@@ -20,7 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-// see https://github.com/joyent/node/issues/3257
+// See https://github.com/joyent/node/issues/3257
 
 const common = require('../common');
 const http = require('http');
@@ -34,7 +34,8 @@ const server = http.createServer(function(req, res) {
   });
 });
 
-common.refreshTmpDir();
+const tmpdir = require('../common/tmpdir');
+tmpdir.refresh();
 
 server.listen(common.PIPE, function() {
   const req = http.request({
@@ -49,7 +50,7 @@ server.listen(common.PIPE, function() {
   sched(function() { req.end(); }, 5);
 });
 
-// schedule a callback after `ticks` event loop ticks
+// Schedule a callback after `ticks` event loop ticks
 function sched(cb, ticks) {
   function fn() {
     if (--ticks)

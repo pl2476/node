@@ -28,37 +28,37 @@ const assert = require('assert');
 const tls = require('tls');
 const fixtures = require('../common/fixtures');
 
-const testCases =
-  [{ ca: ['ca1-cert'],
-     key: 'agent2-key',
-     cert: 'agent2-cert',
-     servers: [
+const testCases = [
+  { ca: ['ca1-cert'],
+    key: 'agent2-key',
+    cert: 'agent2-cert',
+    servers: [
       { ok: true, key: 'agent1-key', cert: 'agent1-cert' },
       { ok: false, key: 'agent2-key', cert: 'agent2-cert' },
       { ok: false, key: 'agent3-key', cert: 'agent3-cert' }
     ]
   },
 
-   { ca: [],
-     key: 'agent2-key',
-     cert: 'agent2-cert',
-     servers: [
-       { ok: false, key: 'agent1-key', cert: 'agent1-cert' },
-       { ok: false, key: 'agent2-key', cert: 'agent2-cert' },
-       { ok: false, key: 'agent3-key', cert: 'agent3-cert' }
-     ]
-   },
+  { ca: [],
+    key: 'agent2-key',
+    cert: 'agent2-cert',
+    servers: [
+      { ok: false, key: 'agent1-key', cert: 'agent1-cert' },
+      { ok: false, key: 'agent2-key', cert: 'agent2-cert' },
+      { ok: false, key: 'agent3-key', cert: 'agent3-cert' }
+    ]
+  },
 
-   { ca: ['ca1-cert', 'ca2-cert'],
-     key: 'agent2-key',
-     cert: 'agent2-cert',
-     servers: [
-       { ok: true, key: 'agent1-key', cert: 'agent1-cert' },
-       { ok: false, key: 'agent2-key', cert: 'agent2-cert' },
-       { ok: true, key: 'agent3-key', cert: 'agent3-cert' }
-     ]
-   }
-  ];
+  { ca: ['ca1-cert', 'ca2-cert'],
+    key: 'agent2-key',
+    cert: 'agent2-cert',
+    servers: [
+      { ok: true, key: 'agent1-key', cert: 'agent1-cert' },
+      { ok: false, key: 'agent2-key', cert: 'agent2-cert' },
+      { ok: true, key: 'agent3-key', cert: 'agent3-cert' }
+    ]
+  }
+];
 
 
 function loadPEM(n) {
@@ -99,7 +99,7 @@ function testServers(index, servers, clientOptions, cb) {
 
       console.error(`expected: ${ok} authed: ${authorized}`);
 
-      assert.strictEqual(ok, authorized);
+      assert.strictEqual(authorized, ok);
       server.close();
     }));
 
@@ -108,7 +108,7 @@ function testServers(index, servers, clientOptions, cb) {
     });
 
     client.on('end', common.mustCall(function() {
-      assert.strictEqual('hello world\n', b);
+      assert.strictEqual(b, 'hello world\n');
     }));
 
     client.on('close', common.mustCall(function() {
@@ -142,6 +142,6 @@ runTest(0);
 
 
 process.on('exit', function() {
-  console.log('successful tests: %d', successfulTests);
+  console.log(`successful tests: ${successfulTests}`);
   assert.strictEqual(successfulTests, testCases.length);
 });

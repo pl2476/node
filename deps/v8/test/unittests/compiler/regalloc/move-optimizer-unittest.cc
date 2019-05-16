@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/move-optimizer.h"
-#include "src/compiler/pipeline.h"
+#include "src/compiler/backend/move-optimizer.h"
 #include "src/ostreams.h"
-#include "test/unittests/compiler/instruction-sequence-unittest.h"
+#include "test/unittests/compiler/backend/instruction-sequence-unittest.h"
 
 namespace v8 {
 namespace internal {
@@ -54,18 +53,16 @@ class MoveOptimizerTest : public InstructionSequenceTest {
   void Optimize() {
     WireBlocks();
     if (FLAG_trace_turbo) {
-      OFStream os(stdout);
-      PrintableInstructionSequence printable = {config(), sequence()};
-      os << "----- Instruction sequence before move optimization -----\n"
-         << printable;
+      StdoutStream{}
+          << "----- Instruction sequence before move optimization -----\n"
+          << *sequence();
     }
     MoveOptimizer move_optimizer(zone(), sequence());
     move_optimizer.Run();
     if (FLAG_trace_turbo) {
-      OFStream os(stdout);
-      PrintableInstructionSequence printable = {config(), sequence()};
-      os << "----- Instruction sequence after move optimization -----\n"
-         << printable;
+      StdoutStream{}
+          << "----- Instruction sequence after move optimization -----\n"
+          << *sequence();
     }
   }
 
@@ -94,8 +91,7 @@ class MoveOptimizerTest : public InstructionSequenceTest {
       default:
         break;
     }
-    CHECK(false);
-    return InstructionOperand();
+    UNREACHABLE();
   }
 };
 
@@ -296,7 +292,7 @@ TEST_F(MoveOptimizerTest, GapsCanMoveOverInstruction) {
       last->GetParallelMove(Instruction::GapPosition::START);
   CHECK(inst1_start == nullptr || NonRedundantSize(inst1_start) == 0);
   CHECK(inst1_end == nullptr || NonRedundantSize(inst1_end) == 0);
-  CHECK(last_start->size() == 2);
+  CHECK_EQ(2, last_start->size());
   int redundants = 0;
   int assignment = 0;
   for (MoveOperands* move : *last_start) {

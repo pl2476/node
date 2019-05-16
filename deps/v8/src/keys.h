@@ -7,9 +7,12 @@
 
 #include "src/objects.h"
 #include "src/objects/hash-table.h"
+#include "src/objects/js-objects.h"
 
 namespace v8 {
 namespace internal {
+
+class JSProxy;
 
 enum AddKeyConversion { DO_NOT_CONVERT, CONVERT_TO_ARRAY_INDEX };
 
@@ -29,17 +32,17 @@ enum AddKeyConversion { DO_NOT_CONVERT, CONVERT_TO_ARRAY_INDEX };
 // Only unique keys are kept by the KeyAccumulator, strings are stored in a
 // HashSet for inexpensive lookups. Integer keys are kept in sorted lists which
 // are more compact and allow for reasonably fast includes check.
-class KeyAccumulator final BASE_EMBEDDED {
+class KeyAccumulator final {
  public:
   KeyAccumulator(Isolate* isolate, KeyCollectionMode mode,
                  PropertyFilter filter)
       : isolate_(isolate), mode_(mode), filter_(filter) {}
-  ~KeyAccumulator();
+  ~KeyAccumulator() = default;
 
   static MaybeHandle<FixedArray> GetKeys(
       Handle<JSReceiver> object, KeyCollectionMode mode, PropertyFilter filter,
       GetKeysConversion keys_conversion = GetKeysConversion::kKeepNumbers,
-      bool is_for_in = false);
+      bool is_for_in = false, bool skip_indices = false);
 
   Handle<FixedArray> GetKeys(
       GetKeysConversion convert = GetKeysConversion::kKeepNumbers);
@@ -49,15 +52,20 @@ class KeyAccumulator final BASE_EMBEDDED {
                                        Handle<JSObject> object);
   Maybe<bool> CollectOwnPropertyNames(Handle<JSReceiver> receiver,
                                       Handle<JSObject> object);
+  void CollectPrivateNames(Handle<JSReceiver> receiver,
+                           Handle<JSObject> object);
   Maybe<bool> CollectAccessCheckInterceptorKeys(
       Handle<AccessCheckInfo> access_check_info, Handle<JSReceiver> receiver,
       Handle<JSObject> object);
 
   // Might return directly the object's enum_cache, copy the result before using
   // as an elements backing store for a JSObject.
+  // Does not throw for uninitialized exports in module namespace objects, so
+  // this has to be checked separately.
   static Handle<FixedArray> GetOwnEnumPropertyKeys(Isolate* isolate,
                                                    Handle<JSObject> object);
-  void AddKey(Object* key, AddKeyConversion convert = DO_NOT_CONVERT);
+
+  void AddKey(Object key, AddKeyConversion convert = DO_NOT_CONVERT);
   void AddKey(Handle<Object> key, AddKeyConversion convert = DO_NOT_CONVERT);
   void AddKeys(Handle<FixedArray> array, AddKeyConversion convert);
   void AddKeys(Handle<JSObject> array_like, AddKeyConversion convert);
@@ -83,7 +91,7 @@ class KeyAccumulator final BASE_EMBEDDED {
   }
   // Shadowing keys are used to filter keys. This happens when non-enumerable
   // keys appear again on the prototype chain.
-  void AddShadowingKey(Object* key);
+  void AddShadowingKey(Object key);
   void AddShadowingKey(Handle<Object> key);
 
  private:
@@ -97,7 +105,7 @@ class KeyAccumulator final BASE_EMBEDDED {
                                  Handle<FixedArray> keys);
   bool IsShadowed(Handle<Object> key);
   bool HasShadowingKeys();
-  Handle<OrderedHashSet> keys() { return Handle<OrderedHashSet>::cast(keys_); }
+  Handle<OrderedHashSet> keys();
 
   Isolate* isolate_;
   // keys_ is either an Handle<OrderedHashSet> or in the case of own JSProxy
@@ -124,14 +132,19 @@ class KeyAccumulator final BASE_EMBEDDED {
 class FastKeyAccumulator {
  public:
   FastKeyAccumulator(Isolate* isolate, Handle<JSReceiver> receiver,
-                     KeyCollectionMode mode, PropertyFilter filter)
-      : isolate_(isolate), receiver_(receiver), mode_(mode), filter_(filter) {
+                     KeyCollectionMode mode, PropertyFilter filter,
+                     bool is_for_in = false, bool skip_indices = false)
+      : isolate_(isolate),
+        receiver_(receiver),
+        mode_(mode),
+        filter_(filter),
+        is_for_in_(is_for_in),
+        skip_indices_(skip_indices) {
     Prepare();
   }
 
   bool is_receiver_simple_enum() { return is_receiver_simple_enum_; }
   bool has_empty_prototype() { return has_empty_prototype_; }
-  void set_is_for_in(bool value) { is_for_in_ = value; }
 
   MaybeHandle<FixedArray> GetKeys(
       GetKeysConversion convert = GetKeysConversion::kKeepNumbers);
@@ -149,6 +162,7 @@ class FastKeyAccumulator {
   KeyCollectionMode mode_;
   PropertyFilter filter_;
   bool is_for_in_ = false;
+  bool skip_indices_ = false;
   bool is_receiver_simple_enum_ = false;
   bool has_empty_prototype_ = false;
 

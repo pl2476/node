@@ -1,4 +1,3 @@
-// Flags: --expose-http2
 'use strict';
 
 const common = require('../common');
@@ -9,7 +8,7 @@ const h2 = require('http2');
 
 const server = h2.createServer();
 
-// we use the lower-level API here
+// We use the lower-level API here
 server.on('stream', common.mustCall(onStream));
 
 function onPriority(stream, parent, weight, exclusive) {
@@ -55,7 +54,7 @@ server.on('listening', common.mustCall(() => {
   req.resume();
   req.on('end', common.mustCall(() => {
     server.close();
-    client.destroy();
+    client.close();
   }));
   req.end();
 

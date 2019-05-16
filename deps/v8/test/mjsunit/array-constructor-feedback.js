@@ -25,8 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --expose-gc
-// Flags: --no-always-opt --opt --no-stress-fullcodegen
+// Flags: --allow-natives-syntax --expose-gc --no-always-opt --opt
 
 // Test element kind of objects.
 
@@ -93,45 +92,6 @@ function assertKind(expected, obj, name_opt) {
 })();
 
 
-// Test: Ensure that inlined array calls in crankshaft learn from deopts
-// based on the move to a dictionary for the array.
-(function() {
-  function bar(len) {
-    return new Array(len);
-  }
-  a = bar(10);
-  a[0] = "a string";
-  a = bar(10);
-  assertKind(elements_kind.fast, a);
-  %OptimizeFunctionOnNextCall(bar);
-  a = bar(10);
-  assertKind(elements_kind.fast, a);
-  assertOptimized(bar);
-  bar(100000);
-  assertOptimized(bar);
-
-  // If the argument isn't a smi, things should still work.
-  a = bar("oops");
-  assertOptimized(bar);
-  assertKind(elements_kind.fast, a);
-
-  function barn(one, two, three) {
-    return new Array(one, two, three);
-  }
-
-  a = barn(1, 2, 3);
-  a[1] = "a string";
-  a = barn(1, 2, 3);
-  assertKind(elements_kind.fast, a);
-  %OptimizeFunctionOnNextCall(barn);
-  a = barn(1, 2, 3);
-  assertKind(elements_kind.fast, a);
-  assertOptimized(barn);
-  a = barn(1, "oops", 3);
-  assertOptimized(barn);
-})();
-
-
 // Test: When a method with array constructor is crankshafted, the type
 // feedback for elements kind is baked in. Verify that transitions don't
 // change it anymore
@@ -144,7 +104,6 @@ function assertKind(expected, obj, name_opt) {
   %OptimizeFunctionOnNextCall(bar);
   b = bar();
   assertOptimized(bar);
-  %DebugPrint(3);
   b[0] = 3.5;
   c = bar();
   assertKind(elements_kind.fast_smi_only, c);

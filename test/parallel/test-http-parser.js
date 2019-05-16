@@ -20,15 +20,11 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-const common = require('../common');
+const { mustCall, mustNotCall } = require('../common');
 const assert = require('assert');
 
-const binding = process.binding('http_parser');
-const methods = binding.methods;
-const HTTPParser = binding.HTTPParser;
-
-const REQUEST = HTTPParser.REQUEST;
-const RESPONSE = HTTPParser.RESPONSE;
+const { methods, HTTPParser } = require('_http_common');
+const { REQUEST, RESPONSE } = HTTPParser;
 
 const kOnHeaders = HTTPParser.kOnHeaders | 0;
 const kOnHeadersComplete = HTTPParser.kOnHeadersComplete | 0;
@@ -42,7 +38,8 @@ const kOnMessageComplete = HTTPParser.kOnMessageComplete | 0;
 
 
 function newParser(type) {
-  const parser = new HTTPParser(type);
+  const parser = new HTTPParser();
+  parser.initialize(type, {});
 
   parser.headers = [];
   parser.url = '';
@@ -55,27 +52,12 @@ function newParser(type) {
   parser[kOnHeadersComplete] = function() {
   };
 
-  parser[kOnBody] = common.mustNotCall('kOnBody should not be called');
+  parser[kOnBody] = mustNotCall('kOnBody should not be called');
 
   parser[kOnMessageComplete] = function() {
   };
 
   return parser;
-}
-
-
-function mustCall(f, times) {
-  let actual = 0;
-
-  process.setMaxListeners(256);
-  process.on('exit', function() {
-    assert.strictEqual(actual, times || 1);
-  });
-
-  return function() {
-    actual++;
-    return f.apply(this, Array.prototype.slice.call(arguments));
-  };
 }
 
 
@@ -114,11 +96,12 @@ function expectBody(expected) {
     throw new Error('hello world');
   };
 
-  parser.reinitialize(HTTPParser.REQUEST);
+  parser.initialize(REQUEST, {});
 
-  assert.throws(function() {
-    parser.execute(request, 0, request.length);
-  }, Error, 'hello world');
+  assert.throws(
+    () => { parser.execute(request, 0, request.length); },
+    { name: 'Error', message: 'hello world' }
+  );
 }
 
 
@@ -197,7 +180,7 @@ function expectBody(expected) {
   let seen_body = false;
 
   const onHeaders = (headers) => {
-    assert.ok(seen_body); // trailers should come after the body
+    assert.ok(seen_body); // Trailers should come after the body
     assert.deepStrictEqual(headers,
                            ['Vary', '*', 'Content-Type', 'text/plain']);
   };
@@ -208,7 +191,7 @@ function expectBody(expected) {
     assert.strictEqual(url || parser.url, '/it');
     assert.strictEqual(versionMajor, 1);
     assert.strictEqual(versionMinor, 1);
-    // expect to see trailing headers now
+    // Expect to see trailing headers now
     parser[kOnHeaders] = mustCall(onHeaders);
   };
 
@@ -573,7 +556,7 @@ function expectBody(expected) {
   parser[kOnBody] = expectBody('ping');
   parser.execute(req1, 0, req1.length);
 
-  parser.reinitialize(REQUEST);
+  parser.initialize(REQUEST, req2);
   parser[kOnBody] = expectBody('pong');
   parser[kOnHeadersComplete] = onHeadersComplete2;
   parser.execute(req2, 0, req2.length);

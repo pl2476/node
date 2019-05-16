@@ -17,7 +17,7 @@ async function test1() {
 }
 
 test1();
-%RunMicrotasks();
+%PerformMicrotaskCheckpoint();
 assertTrue(ran);
 
 ran = false;
@@ -29,14 +29,15 @@ async function test2() {
   } catch(e) {
     assertInstanceof(e, SyntaxError);
     assertEquals(
-      "The requested module does not provide an export named 'default'",
+      "The requested module 'modules-skip-empty.js' does not provide an " +
+      "export named 'default'",
       e.message);
     ran = true;
   }
 }
 
 test2();
-%RunMicrotasks();
+%PerformMicrotaskCheckpoint();
 assertTrue(ran);
 
 ran = false;
@@ -52,5 +53,5 @@ async function test3() {
 }
 
 test3();
-%RunMicrotasks();
+%PerformMicrotaskCheckpoint();
 assertTrue(ran);

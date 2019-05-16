@@ -4,7 +4,6 @@
 
 // Flags: --wasm-interpret-all --allow-natives-syntax --expose-gc
 
-load('test/mjsunit/wasm/wasm-constants.js');
 load('test/mjsunit/wasm/wasm-module-builder.js');
 
 // The stack trace contains file path, only keep "interpreter.js".
@@ -22,6 +21,7 @@ function checkStack(stack, expected_lines) {
 }
 
 (function testCallImported() {
+  print(arguments.callee.name);
   var stack;
   let func = () => stack = new Error('test imported stack').stack;
 
@@ -47,6 +47,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testCallImportedWithParameters() {
+  print(arguments.callee.name);
   var stack;
   var passed_args = [];
   let func1 = (i, j) => (passed_args.push(i, j), 2 * i + j);
@@ -80,6 +81,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testTrap() {
+  print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
   var foo_idx = builder.addFunction('foo', kSig_v_v)
                     .addBody([kExprNop, kExprNop, kExprUnreachable])
@@ -110,6 +112,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testThrowFromImport() {
+  print(arguments.callee.name);
   function func() {
     throw new Error('thrown from imported function');
   }
@@ -141,6 +144,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testGlobals() {
+  print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
   builder.addGlobal(kWasmI32, true);  // 0
   builder.addGlobal(kWasmI64, true);  // 1
@@ -190,6 +194,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testReentrantInterpreter() {
+  print(arguments.callee.name);
   var stacks;
   var instance;
   function func(i) {
@@ -227,6 +232,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testIndirectImports() {
+  print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
 
   var sig_i_ii = builder.addType(kSig_i_ii);
@@ -260,6 +266,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testIllegalImports() {
+  print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
 
   var sig_l_v = builder.addType(kSig_l_v);
@@ -288,7 +295,7 @@ function checkStack(stack, expected_lines) {
   } catch (e) {
     if (!(e instanceof TypeError)) throw e;
     checkStack(stripPath(e.stack), [
-      'TypeError: invalid type',                                // -
+      'TypeError: ' + kTrapMsgs[kTrapTypeError],                // -
       '    at direct (wasm-function[1]:1)',                     // -
       '    at main (wasm-function[3]:3)',                       // -
       /^    at testIllegalImports \(interpreter.js:\d+:22\)$/,  // -
@@ -301,8 +308,8 @@ function checkStack(stack, expected_lines) {
   } catch (e) {
     if (!(e instanceof TypeError)) throw e;
     checkStack(stripPath(e.stack), [
-      'TypeError: invalid type',                                // -
-      '    at indirect (wasm-function[2]:1)',                   // -
+      'TypeError: ' + kTrapMsgs[kTrapTypeError],                // -
+      '    at indirect (wasm-function[2]:3)',                   // -
       '    at main (wasm-function[3]:3)',                       // -
       /^    at testIllegalImports \(interpreter.js:\d+:22\)$/,  // -
       /^    at interpreter.js:\d+:3$/
@@ -310,7 +317,33 @@ function checkStack(stack, expected_lines) {
   }
 })();
 
+(function testImportExportedFunction() {
+  // See https://crbug.com/860392.
+  print(arguments.callee.name);
+  let instance0 = (() => {
+    let builder = new WasmModuleBuilder();
+    builder.addFunction('f11', kSig_i_v).addBody(wasmI32Const(11)).exportFunc();
+    builder.addFunction('f17', kSig_i_v).addBody(wasmI32Const(17)).exportFunc();
+    return builder.instantiate();
+  })();
+
+  let builder = new WasmModuleBuilder();
+  let sig_i_v = builder.addType(kSig_i_v);
+  let f11_imp = builder.addImport('q', 'f11', sig_i_v);
+  let f17_imp = builder.addImport('q', 'f17', sig_i_v);
+  let add = builder.addFunction('add', sig_i_v).addBody([
+    kExprCallFunction, f11_imp,  // call f11
+    kExprCallFunction, f17_imp,  // call f17
+    kExprI32Add                  // i32.add
+  ]).exportFunc();
+  let instance = builder.instantiate(
+      {q: {f11: instance0.exports.f11, f17: instance0.exports.f17}});
+
+  assertEquals(28, instance.exports.add());
+})();
+
 (function testInfiniteRecursion() {
+  print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
 
   var direct = builder.addFunction('main', kSig_v_v)
@@ -331,6 +364,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testUnwindSingleActivation() {
+  print(arguments.callee.name);
   // Create two activations and unwind just the top one.
   var builder = new WasmModuleBuilder();
 
@@ -367,6 +401,7 @@ function checkStack(stack, expected_lines) {
 })();
 
 (function testInterpreterGC() {
+  print(arguments.callee.name);
   function run(f) {
     // wrap the creation in a closure so that the only thing returned is
     // the module (i.e. the underlying array buffer of wasm wire bytes dies).
@@ -397,4 +432,138 @@ function checkStack(stack, expected_lines) {
     run(x => (x + 19));
     run(x => (x - 18));
   }
+})();
+
+(function testImportThrowsOnToNumber() {
+  print(arguments.callee.name);
+  const builder = new WasmModuleBuilder();
+  const imp_idx = builder.addImport('mod', 'func', kSig_i_v);
+  builder.addFunction('main', kSig_i_v)
+      .addBody([kExprCallFunction, imp_idx])
+      .exportFunc();
+  var num_callback_calls = 0;
+  const callback = () => {
+    ++num_callback_calls;
+    return Symbol()
+  };
+  var instance = builder.instantiate({mod: {func: callback}});
+  // Test that this does not mess up internal state by executing it three times.
+  for (var i = 0; i < 3; ++i) {
+    var interpreted_before = %WasmNumInterpretedCalls(instance);
+    assertThrows(
+        () => instance.exports.main(), TypeError,
+        'Cannot convert a Symbol value to a number');
+    assertEquals(interpreted_before + 1, %WasmNumInterpretedCalls(instance));
+    assertEquals(i + 1, num_callback_calls);
+  }
+})();
+
+(function testCallWithMoreReturnsThenParams() {
+  print(arguments.callee.name);
+  const builder1 = new WasmModuleBuilder();
+  builder1.addFunction('exp', kSig_l_v)
+      .addBody([kExprI64Const, 23])
+      .exportFunc();
+  const exp = builder1.instantiate().exports.exp;
+  const builder2 = new WasmModuleBuilder();
+  const imp_idx = builder2.addImport('imp', 'func', kSig_l_v);
+  builder2.addFunction('main', kSig_i_v)
+      .addBody([kExprCallFunction, imp_idx, kExprI32ConvertI64])
+      .exportFunc();
+  const instance = builder2.instantiate({imp: {func: exp}});
+  assertEquals(23, instance.exports.main());
+})();
+
+(function testTableCall() {
+  print(arguments.callee.name);
+  const builder1 = new WasmModuleBuilder();
+  builder1.addFunction('func', kSig_v_v).addBody([]).exportFunc();
+  const instance1 = builder1.instantiate();
+  const table = new WebAssembly.Table({element: 'anyfunc', initial: 2});
+
+  const builder2 = new WasmModuleBuilder()
+  builder2.addImportedTable('m', 'table');
+  const sig = builder2.addType(kSig_v_v);
+  builder2.addFunction('call_func', kSig_v_v)
+      .addBody([kExprI32Const, 0, kExprCallIndirect, sig, kTableZero])
+      .exportFunc();
+  const instance2 = builder2.instantiate({m: {table: table}});
+  table.set(0, instance1.exports.func);
+  instance2.exports.call_func();
+})();
+
+(function testTableCall2() {
+  // See crbug.com/787910.
+  print(arguments.callee.name);
+  const builder1 = new WasmModuleBuilder();
+  builder1.addFunction('exp', kSig_i_i)
+      .addBody([kExprI32Const, 0])
+      .exportFunc();
+  const instance1 = builder1.instantiate();
+  const builder2 = new WasmModuleBuilder();
+  const sig1 = builder2.addType(kSig_i_v);
+  const sig2 = builder2.addType(kSig_i_i);
+  builder2.addFunction('call2', kSig_i_v)
+      .addBody([
+        kExprI32Const, 0, kExprI32Const, 0, kExprCallIndirect, sig2, kTableZero
+      ])
+      .exportAs('call2');
+  builder2.addImportedTable('imp', 'table');
+  const tab = new WebAssembly.Table({
+    element: 'anyfunc',
+    initial: 3,
+  });
+  const instance2 = builder2.instantiate({imp: {table: tab}});
+  tab.set(0, instance1.exports.exp);
+  instance2.exports.call2();
+})();
+
+(function testTableCall3() {
+  // See crbug.com/814562.
+  print(arguments.callee.name);
+  const builder0 = new WasmModuleBuilder();
+  const sig_index = builder0.addType(kSig_i_v);
+  builder0.addFunction('main', kSig_i_i)
+      .addBody([
+        kExprGetLocal, 0,  // --
+        kExprCallIndirect, sig_index, kTableZero
+      ])  // --
+      .exportAs('main');
+  builder0.setTableBounds(3, 3);
+  builder0.addExportOfKind('table', kExternalTable);
+  const module0 = new WebAssembly.Module(builder0.toBuffer());
+  const instance0 = new WebAssembly.Instance(module0);
+
+  const builder1 = new WasmModuleBuilder();
+  builder1.addFunction('main', kSig_i_v).addBody([kExprUnreachable]);
+  builder1.addImportedTable('z', 'table');
+  builder1.addElementSegment(0, false, [0], true);
+  const module1 = new WebAssembly.Module(builder1.toBuffer());
+  const instance1 =
+      new WebAssembly.Instance(module1, {z: {table: instance0.exports.table}});
+  assertThrows(
+      () => instance0.exports.main(0), WebAssembly.RuntimeError, 'unreachable');
+})();
+
+(function testSerializeInterpreted() {
+  print(arguments.callee.name);
+  const builder = new WasmModuleBuilder();
+  builder.addFunction('main', kSig_i_i)
+      .addBody([kExprGetLocal, 0, kExprI32Const, 7, kExprI32Add])
+      .exportFunc();
+
+  const wire_bytes = builder.toBuffer();
+  var module = new WebAssembly.Module(wire_bytes);
+  const i1 = new WebAssembly.Instance(module);
+
+  assertEquals(11, i1.exports.main(4));
+
+  const buff = %SerializeWasmModule(module);
+  module = null;
+  gc();
+
+  module = %DeserializeWasmModule(buff, wire_bytes);
+  const i2 = new WebAssembly.Instance(module);
+
+  assertEquals(11, i2.exports.main(4));
 })();

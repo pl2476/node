@@ -1,4 +1,3 @@
-// Flags: --expose-http2
 'use strict';
 
 const common = require('../common');
@@ -9,6 +8,7 @@ const http2 = require('http2');
 
 const errCheck = common.expectsError({
   type: Error,
+  code: 'ERR_STREAM_WRITE_AFTER_END',
   message: 'write after end'
 }, 2);
 
@@ -49,11 +49,11 @@ server.listen(0, () => {
 
   req.on('response', common.mustCall((headers, flags) => {
     assert.strictEqual(headers[HTTP2_HEADER_STATUS], 200);
-    assert.strictEqual(flags, 5); // the end of stream flag is set
+    assert.strictEqual(flags, 5); // The end of stream flag is set
   }));
   req.on('data', common.mustNotCall());
   req.on('end', common.mustCall(() => {
     server.close();
-    client.destroy();
+    client.close();
   }));
 });

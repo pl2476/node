@@ -16,14 +16,24 @@ const utils = require('./rules-utils.js');
 const msg = 'Please add a hasCrypto check to allow this test to be skipped ' +
             'when Node is built "--without-ssl".';
 
+const cryptoModules = ['crypto', 'http2'];
+const requireModules = cryptoModules.concat(['tls', 'https']);
+const bindingModules = cryptoModules.concat(['tls_wrap']);
+
 module.exports = function(context) {
   const missingCheckNodes = [];
   const requireNodes = [];
-  var hasSkipCall = false;
+  let commonModuleNode = null;
+  let hasSkipCall = false;
 
   function testCryptoUsage(node) {
-    if (utils.isRequired(node, ['crypto', 'tls', 'https', 'http2'])) {
+    if (utils.isRequired(node, requireModules) ||
+        utils.isBinding(node, bindingModules)) {
       requireNodes.push(node);
+    }
+
+    if (utils.isCommonModule(node)) {
+      commonModuleNode = node;
     }
   }
 
@@ -54,8 +64,24 @@ module.exports = function(context) {
     }
   }
 
-  function reportIfMissingCheck(node) {
+  function reportIfMissingCheck() {
     if (hasSkipCall) {
+      // There is a skip, which is good, but verify that the require() calls
+      // in question come after at least one check.
+      if (missingCheckNodes.length > 0) {
+        requireNodes.forEach((requireNode) => {
+          const beforeAllChecks = missingCheckNodes.every((checkNode) => {
+            return requireNode.start < checkNode.start;
+          });
+
+          if (beforeAllChecks) {
+            context.report({
+              node: requireNode,
+              message: msg
+            });
+          }
+        });
+      }
       return;
     }
 
@@ -70,7 +96,20 @@ module.exports = function(context) {
 
   function report(nodes) {
     nodes.forEach((node) => {
-      context.report(node, msg);
+      context.report({
+        node,
+        message: msg,
+        fix: (fixer) => {
+          if (commonModuleNode) {
+            return fixer.insertTextAfter(
+              commonModuleNode,
+              '\nif (!common.hasCrypto) {' +
+              ' common.skip("missing crypto");' +
+              '}'
+            );
+          }
+        }
+      });
     });
   }
 
@@ -78,6 +117,6 @@ module.exports = function(context) {
     'CallExpression': (node) => testCryptoUsage(node),
     'IfStatement:exit': (node) => testIfStatement(node),
     'MemberExpression:exit': (node) => testMemberExpression(node),
-    'Program:exit': (node) => reportIfMissingCheck(node)
+    'Program:exit': () => reportIfMissingCheck()
   };
 };

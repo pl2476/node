@@ -2,50 +2,61 @@
 
 const BB = require('bluebird')
 
+const figgyPudding = require('figgy-pudding')
 const stat = BB.promisify(require('graceful-fs').stat)
 const gentlyRm = BB.promisify(require('../../utils/gently-rm.js'))
-const log = require('npmlog')
 const mkdirp = BB.promisify(require('mkdirp'))
 const moduleName = require('../../utils/module-name.js')
 const moduleStagingPath = require('../module-staging-path.js')
 const move = require('../../utils/move.js')
 const npa = require('npm-package-arg')
 const npm = require('../../npm.js')
+let npmConfig
 const packageId = require('../../utils/package-id.js')
-let pacoteOpts
 const path = require('path')
 const localWorker = require('./extract-worker.js')
 const workerFarm = require('worker-farm')
+const isRegistry = require('../../utils/is-registry.js')
 
 const WORKER_PATH = require.resolve('./extract-worker.js')
 let workers
 
+const ExtractOpts = figgyPudding({
+  log: {}
+}, { other () { return true } })
+
+// Disabled for now. Re-enable someday. Just not today.
+const ENABLE_WORKERS = false
+
 extract.init = () => {
-  workers = workerFarm({
-    maxConcurrentCallsPerWorker: npm.limit.fetch,
-    maxRetries: 1
-  }, WORKER_PATH)
+  if (ENABLE_WORKERS) {
+    workers = workerFarm({
+      maxConcurrentCallsPerWorker: npm.limit.fetch,
+      maxRetries: 1
+    }, WORKER_PATH)
+  }
   return BB.resolve()
 }
 extract.teardown = () => {
-  workerFarm.end(workers)
-  workers = null
+  if (ENABLE_WORKERS) {
+    workerFarm.end(workers)
+    workers = null
+  }
   return BB.resolve()
 }
 module.exports = extract
 function extract (staging, pkg, log) {
   log.silly('extract', packageId(pkg))
   const extractTo = moduleStagingPath(staging, pkg)
-  if (!pacoteOpts) {
-    pacoteOpts = require('../../config/pacote')
+  if (!npmConfig) {
+    npmConfig = require('../../config/figgy-config.js')
   }
-  const opts = pacoteOpts({
-    integrity: pkg.package._integrity
+  let opts = ExtractOpts(npmConfig()).concat({
+    integrity: pkg.package._integrity,
+    resolved: pkg.package._resolved
   })
   const args = [
-    pkg.package._resolved
-    ? npa.resolve(pkg.package.name, pkg.package._resolved)
-    : pkg.package._requested,
+    pkg.package._requested,
     extractTo,
     opts
   ]
@@ -54,11 +65,20 @@ function extract (staging, pkg, log) {
     let msg = args
     const spec = typeof args[0] === 'string' ? npa(args[0]) : args[0]
     args[0] = spec.raw
-    if (spec.registry || spec.type === 'remote') {
+    if (ENABLE_WORKERS && (isRegistry(spec) || spec.type === 'remote')) {
       // We can't serialize these options
-      opts.loglevel = opts.log.level
-      opts.log = null
-      opts.dirPacker = null
+      opts = opts.concat({
+        loglevel: opts.log.level,
+        log: null,
+        dirPacker: null,
+        Promise: null,
+        _events: null,
+        _eventsCount: null,
+        list: null,
+        sources: null,
+        _maxListeners: null,
+        root: null
+      })
       // workers will run things in parallel!
       launcher = workers
       try {
@@ -93,20 +113,8 @@ function readBundled (pkg, staging, extractTo) {
   }, {concurrency: 10})
 }
 
-function getTree (pkg) {
-  while (pkg.parent) pkg = pkg.parent
-  return pkg
-}
-
-function warn (pkg, code, msg) {
-  const tree = getTree(pkg)
-  const err = new Error(msg)
-  err.code = code
-  tree.warnings.push(err)
-}
-
 function stageBundledModule (bundler, child, staging, parentPath) {
-  const stageFrom = path.join(parentPath, 'node_modules', child.package.name)
+  const stageFrom = path.join(parentPath, 'node_modules', moduleName(child))
   const stageTo = moduleStagingPath(staging, child)
 
   return BB.map(child.children, (child) => {
@@ -127,15 +135,6 @@ function finishModule (bundler, child, stageTo, stageFrom) {
       return move(stageFrom, stageTo)
     })
   } else {
-    return stat(stageFrom).then(() => {
-      const bundlerId = packageId(bundler)
-      if (!getTree(bundler).warnings.some((w) => {
-        return w.code === 'EBUNDLEOVERRIDE'
-      })) {
-        warn(bundler, 'EBUNDLEOVERRIDE', `${bundlerId} had bundled packages that do not match the required version(s). They have been replaced with non-bundled versions.`)
-      }
-      log.verbose('bundle', `EBUNDLEOVERRIDE: Replacing ${bundlerId}'s bundled version of ${moduleName(child)} with ${packageId(child)}.`)
-      return gentlyRm(stageFrom)
-    }, () => {})
+    return stat(stageFrom).then(() => gentlyRm(stageFrom), () => {})
   }
 }

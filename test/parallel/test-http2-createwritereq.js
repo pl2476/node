@@ -1,5 +1,6 @@
-// Flags: --expose-http2
 'use strict';
+
+// Flags: --expose-gc
 
 const common = require('../common');
 if (!common.hasCrypto)
@@ -23,7 +24,7 @@ const encodings = {
   'ucs-2': 'ucs2',
   'utf16le': 'ucs2',
   'utf-16le': 'ucs2',
-  'UTF8': 'utf8' // should fall through to Buffer.from
+  'UTF8': 'utf8' // Should fall through to Buffer.from
 };
 
 const testsToRun = Object.keys(encodings).length;
@@ -55,13 +56,22 @@ server.listen(0, common.mustCall(function() {
     req.resume();
 
     req.on('end', common.mustCall(function() {
-      client.destroy();
+      client.close();
       testsFinished++;
 
       if (testsFinished === testsToRun) {
-        server.close();
+        server.close(common.mustCall());
       }
     }));
+
+    // Ref: https://github.com/nodejs/node/issues/17840
+    const origDestroy = req.destroy;
+    req.destroy = function(...args) {
+      // Schedule a garbage collection event at the end of the current
+      // MakeCallback() run.
+      process.nextTick(global.gc);
+      return origDestroy.call(this, ...args);
+    };
 
     req.end();
   });

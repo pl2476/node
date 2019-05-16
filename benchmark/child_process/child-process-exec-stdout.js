@@ -12,12 +12,10 @@ const bench = common.createBenchmark(childProcessExecStdout, {
   dur: [5]
 });
 
-function childProcessExecStdout(conf) {
+function childProcessExecStdout({ dur, len }) {
   bench.start();
 
-  const maxDuration = conf.dur * 1000;
-  const len = +conf.len;
-
+  const maxDuration = dur * 1000;
   const cmd = `yes "${'.'.repeat(len)}"`;
   const child = exec(cmd, { 'stdio': ['ignore', 'pipe', 'ignore'] });
 
@@ -32,8 +30,8 @@ function childProcessExecStdout(conf) {
       // Sometimes there's a yes.exe process left hanging around on Windows.
       try {
         execSync(`taskkill /f /t /pid ${child.pid}`);
-      } catch (_) {
-        // this is a best effort kill. stderr is piped to parent for tracing.
+      } catch {
+        // This is a best effort kill. stderr is piped to parent for tracing.
       }
     } else {
       child.kill();

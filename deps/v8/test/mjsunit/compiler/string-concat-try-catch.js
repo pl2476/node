@@ -4,7 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-var a = "a".repeat(268435440);
+var a = "a".repeat(%StringMaxLength());
 
 (function() {
   function foo(a) {
@@ -15,6 +15,7 @@ var a = "a".repeat(268435440);
     }
   }
 
+  %PrepareFunctionForOptimization(foo);
   foo("a");
   foo("a");
   // Optimize with string length protector check.
@@ -22,6 +23,7 @@ var a = "a".repeat(268435440);
   foo("a");
   assertInstanceof(foo(a), RangeError);
   // Optimize without string length protector check.
+  %PrepareFunctionForOptimization(foo);
   %OptimizeFunctionOnNextCall(foo);
   foo("a");
   assertInstanceof(foo(a), RangeError);

@@ -51,7 +51,7 @@ test.on('readable', function() {
   const res = test.read(b);
   if (res) {
     bytesread += res.length;
-    console.error('br=%d len=%d', bytesread, len);
+    console.error(`br=${bytesread} len=${len}`);
     setTimeout(next, 1);
   }
   test.read(0);
@@ -59,11 +59,11 @@ test.on('readable', function() {
 test.read(0);
 
 function next() {
-  // now let's make 'end' happen
+  // Now let's make 'end' happen
   test.removeListener('end', thrower);
   test.on('end', common.mustCall());
 
-  // one to get the last byte
+  // One to get the last byte
   let r = test.read();
   assert(r);
   assert.strictEqual(r.length, 1);

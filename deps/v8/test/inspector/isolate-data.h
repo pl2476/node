@@ -30,11 +30,12 @@ class IsolateData : public v8_inspector::V8InspectorClient {
               v8::StartupData* startup_data, bool with_inspector);
   static IsolateData* FromContext(v8::Local<v8::Context> context);
 
-  v8::Isolate* isolate() const { return isolate_; }
+  v8::Isolate* isolate() const { return isolate_.get(); }
   TaskRunner* task_runner() const { return task_runner_; }
 
   // Setting things up.
   int CreateContextGroup();
+  void ResetContextGroup(int context_group_id);
   v8::Local<v8::Context> GetContext(int context_group_id);
   int GetContextGroupId(v8::Local<v8::Context> context);
   void RegisterModule(v8::Local<v8::Context> context,
@@ -58,17 +59,25 @@ class IsolateData : public v8_inspector::V8InspectorClient {
                           bool recurring);
   void AsyncTaskStarted(void* task);
   void AsyncTaskFinished(void* task);
+
+  v8_inspector::V8StackTraceId StoreCurrentStackTrace(
+      const v8_inspector::StringView& description);
+  void ExternalAsyncTaskStarted(const v8_inspector::V8StackTraceId& parent);
+  void ExternalAsyncTaskFinished(const v8_inspector::V8StackTraceId& parent);
+
   void AddInspectedObject(int session_id, v8::Local<v8::Value> object);
 
   // Test utilities.
   void SetCurrentTimeMS(double time);
   void SetMemoryInfo(v8::Local<v8::Value> memory_info);
   void SetLogConsoleApiMessageCalls(bool log);
+  void SetLogMaxAsyncCallStackDepthChanged(bool log);
   void SetMaxAsyncTaskStacksForTest(int limit);
   void DumpAsyncTaskStacksStateForTest();
   void FireContextCreated(v8::Local<v8::Context> context, int context_group_id);
   void FireContextDestroyed(v8::Local<v8::Context> context);
   void FreeContext(v8::Local<v8::Context> context);
+  void SetResourceNamePrefix(v8::Local<v8::String> prefix);
 
  private:
   struct VectorCompare {
@@ -105,10 +114,22 @@ class IsolateData : public v8_inspector::V8InspectorClient {
                          const v8_inspector::StringView& url,
                          unsigned lineNumber, unsigned columnNumber,
                          v8_inspector::V8StackTrace*) override;
+  bool isInspectableHeapObject(v8::Local<v8::Object>) override;
+  void maxAsyncCallStackDepthChanged(int depth) override;
+  std::unique_ptr<v8_inspector::StringBuffer> resourceNameToUrl(
+      const v8_inspector::StringView& resourceName) override;
+
+  // The isolate gets deleted by its {Dispose} method, not by the default
+  // deleter. Therefore we have to define a custom deleter for the unique_ptr to
+  // call {Dispose}. We have to use the unique_ptr so that the isolate get
+  // disposed in the right order, relative to other member variables.
+  struct IsolateDeleter {
+    void operator()(v8::Isolate* isolate) const { isolate->Dispose(); }
+  };
 
   TaskRunner* task_runner_;
   SetupGlobalTasks setup_global_tasks_;
-  v8::Isolate* isolate_;
+  std::unique_ptr<v8::Isolate, IsolateDeleter> isolate_;
   std::unique_ptr<v8_inspector::V8Inspector> inspector_;
   int last_context_group_id_ = 0;
   std::map<int, v8::Global<v8::Context>> contexts_;
@@ -122,6 +143,9 @@ class IsolateData : public v8_inspector::V8InspectorClient {
   bool current_time_set_ = false;
   double current_time_ = 0.0;
   bool log_console_api_message_calls_ = false;
+  bool log_max_async_call_stack_depth_changed_ = false;
+  v8::Global<v8::Private> not_inspectable_private_;
+  v8::Global<v8::String> resource_name_prefix_;
 
   DISALLOW_COPY_AND_ASSIGN(IsolateData);
 };

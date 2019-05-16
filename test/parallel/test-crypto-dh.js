@@ -22,19 +22,41 @@ assert.strictEqual(secret2.toString('base64'), secret1);
 assert.strictEqual(dh1.verifyError, 0);
 assert.strictEqual(dh2.verifyError, 0);
 
+{
+  const DiffieHellman = crypto.DiffieHellman;
+  const dh = DiffieHellman(p1, 'buffer');
+  assert(dh instanceof DiffieHellman, 'DiffieHellman is expected to return a ' +
+                                      'new instance when called without `new`');
+}
+
+{
+  const DiffieHellmanGroup = crypto.DiffieHellmanGroup;
+  const dhg = DiffieHellmanGroup('modp5');
+  assert(dhg instanceof DiffieHellmanGroup, 'DiffieHellmanGroup is expected ' +
+                                            'to return a new instance when ' +
+                                            'called without `new`');
+}
+
+{
+  const ECDH = crypto.ECDH;
+  const ecdh = ECDH('prime256v1');
+  assert(ecdh instanceof ECDH, 'ECDH is expected to return a new instance ' +
+                               'when called without `new`');
+}
+
 [
   [0x1, 0x2],
   () => { },
   /abc/,
   {}
-].forEach((i) => {
+].forEach((input) => {
   common.expectsError(
-    () => crypto.createDiffieHellman(i),
+    () => crypto.createDiffieHellman(input),
     {
       code: 'ERR_INVALID_ARG_TYPE',
       type: TypeError,
       message: 'The "sizeOrKey" argument must be one of type number, string, ' +
-               'Buffer, TypedArray, or DataView'
+               `Buffer, TypedArray, or DataView. Received type ${typeof input}`
     }
   );
 });
@@ -56,8 +78,26 @@ const secret3 = dh3.computeSecret(key2, 'hex', 'base64');
 
 assert.strictEqual(secret1, secret3);
 
-const wrongBlockLength =
-  /^Error: error:0606506D:digital envelope routines:EVP_DecryptFinal_ex:wrong final block length$/;
+// computeSecret works without a public key set at all.
+const dh4 = crypto.createDiffieHellman(p1, 'buffer');
+dh4.setPrivateKey(privkey1);
+
+assert.deepStrictEqual(dh1.getPrime(), dh4.getPrime());
+assert.deepStrictEqual(dh1.getGenerator(), dh4.getGenerator());
+assert.deepStrictEqual(dh1.getPrivateKey(), dh4.getPrivateKey());
+assert.strictEqual(dh4.verifyError, 0);
+
+const secret4 = dh4.computeSecret(key2, 'hex', 'base64');
+
+assert.strictEqual(secret1, secret4);
+
+const wrongBlockLength = {
+  message: 'error:0606506D:digital envelope' +
+    ' routines:EVP_DecryptFinal_ex:wrong final block length',
+  code: 'ERR_OSSL_EVP_WRONG_FINAL_BLOCK_LENGTH',
+  library: 'digital envelope routines',
+  reason: 'wrong final block length'
+};
 
 // Run this one twice to make sure that the dh3 clears its error properly
 {
@@ -76,7 +116,7 @@ const wrongBlockLength =
 
 assert.throws(() => {
   dh3.computeSecret('');
-}, /^Error: Supplied key is too small$/);
+}, { message: 'Supplied key is too small' });
 
 // Create a shared using a DH group.
 const alice = crypto.createDiffieHellmanGroup('modp5');
@@ -195,7 +235,7 @@ if (availableCurves.has('prime256v1') && availableCurves.has('secp256k1')) {
   assert(firstByte === 2 || firstByte === 3);
   firstByte = ecdh1.getPublicKey('buffer', 'hybrid')[0];
   assert(firstByte === 6 || firstByte === 7);
-  // format value should be string
+  // Format value should be string
 
   common.expectsError(
     () => ecdh1.getPublicKey('buffer', 10),
@@ -209,9 +249,13 @@ if (availableCurves.has('prime256v1') && availableCurves.has('secp256k1')) {
   const ecdh3 = crypto.createECDH('secp256k1');
   const key3 = ecdh3.generateKeys();
 
-  assert.throws(() => {
-    ecdh2.computeSecret(key3, 'latin1', 'buffer');
-  }, /^Error: Failed to translate Buffer to a EC_POINT$/);
+  common.expectsError(
+    () => ecdh2.computeSecret(key3, 'latin1', 'buffer'),
+    {
+      code: 'ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY',
+      type: Error,
+      message: 'Public key is not valid for specified curve'
+    });
 
   // ECDH should allow .setPrivateKey()/.setPublicKey()
   const ecdh4 = crypto.createECDH('prime256v1');
@@ -221,7 +265,7 @@ if (availableCurves.has('prime256v1') && availableCurves.has('secp256k1')) {
 
   assert.throws(() => {
     ecdh4.setPublicKey(ecdh3.getPublicKey());
-  }, /^Error: Failed to convert Buffer to EC_POINT$/);
+  }, { message: 'Failed to convert Buffer to EC_POINT' });
 
   // Verify that we can use ECDH without having to use newly generated keys.
   const ecdh5 = crypto.createECDH('secp256k1');
@@ -318,9 +362,13 @@ if (availableCurves.has('prime256v1') && availableHashes.has('sha256')) {
   const invalidKey = Buffer.alloc(65);
   invalidKey.fill('\0');
   curve.generateKeys();
-  assert.throws(() => {
-    curve.computeSecret(invalidKey);
-  }, /^Error: Failed to translate Buffer to a EC_POINT$/);
+  common.expectsError(
+    () => curve.computeSecret(invalidKey),
+    {
+      code: 'ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY',
+      type: Error,
+      message: 'Public key is not valid for specified curve'
+    });
   // Check that signing operations are not impacted by the above error.
   const ecPrivateKey =
     '-----BEGIN EC PRIVATE KEY-----\n' +
@@ -328,16 +376,15 @@ if (availableCurves.has('prime256v1') && availableHashes.has('sha256')) {
     'AwEHoUQDQgAEurOxfSxmqIRYzJVagdZfMMSjRNNhB8i3mXyIMq704m2m52FdfKZ2\n' +
     'pQhByd5eyj3lgZ7m7jbchtdgyOF8Io/1ng==\n' +
     '-----END EC PRIVATE KEY-----';
-  assert.doesNotThrow(() => {
-    crypto.createSign('SHA256').sign(ecPrivateKey);
-  });
+  crypto.createSign('SHA256').sign(ecPrivateKey);
 }
 
-// invalid test: curve argument is undefined
+// Invalid test: curve argument is undefined
 common.expectsError(
   () => crypto.createECDH(),
   {
     code: 'ERR_INVALID_ARG_TYPE',
     type: TypeError,
-    message: 'The "curve" argument must be of type string'
+    message: 'The "curve" argument must be of type string. ' +
+             'Received type undefined'
   });

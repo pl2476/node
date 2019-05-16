@@ -1,53 +1,43 @@
 # Node.js Project Governance
 
-The Node.js project is governed by its Collaborators, including a Technical
-Steering Committee (TSC) which is responsible for high-level guidance of the
-project.
+<!-- TOC -->
+
+- [Collaborators](#collaborators)
+  - [Collaborator Activities](#collaborator-activities)
+- [Technical Steering Committee](#technical-steering-committee)
+  - [TSC Meetings](#tsc-meetings)
+- [Collaborator Nominations](#collaborator-nominations)
+  - [Onboarding](#onboarding)
+- [Consensus Seeking Process](#consensus-seeking-process)
+
+<!-- /TOC -->
 
 ## Collaborators
 
-The [nodejs/node](https://github.com/nodejs/node) GitHub repository is
-maintained by Collaborators who are added by the TSC on an ongoing basis.
+Node.js Core Collaborators maintain the [nodejs/node][] GitHub repository.
+The GitHub team for Node.js Core Collaborators is @nodejs/collaborators. Their
+privileges include but are not limited to:
 
-Individuals identified by the TSC as making significant and valuable
-contributions across any Node.js repository may be made Collaborators and given
-commit access to the project. Activities taken into consideration include (but
-are not limited to) the quality of:
+* Commit access to the [nodejs/node][] repository
+* Access to the Node.js continuous integration (CI) jobs
 
-* code commits and pull requests
-* documentation commits and pull requests
-* comments on issues and pull requests
-* contributions to the Node.js website
-* assistance provided to end users and novice contributors
-* participation in Working Groups
-* other participation in the wider Node.js community
+Both Collaborators and non-Collaborators may propose changes to the Node.js
+source code. The mechanism to propose such a change is a GitHub pull request.
+Collaborators are responsible for reviewing and merging (_landing_)
+pull requests.
 
-If individuals making valuable contributions do not believe they have been
-considered for commit access, they may log an issue or contact a TSC member
-directly.
+At least two Collaborators must approve a pull request before the pull request
+can land. (One Collaborator approval is enough if the pull request has been open
+for more than 7 days.) Approving a pull request indicates that the Collaborator
+accepts responsibility for the change. Approval must be from Collaborators who
+are not authors of the change.
 
-Modifications of the contents of the nodejs/node repository are made on
-a collaborative basis. Anybody with a GitHub account may propose a
-modification via pull request and it will be considered by the project
-Collaborators. All pull requests must be reviewed and accepted by a
-Collaborator with sufficient expertise who is able to take full
-responsibility for the change. In the case of pull requests proposed
-by an existing Collaborator, an additional Collaborator is required
-for sign-off.
+If a Collaborator opposes a proposed change, then the change cannot land. The
+exception is if the TSC votes to approve the change despite the opposition.
+Usually, involving the TSC is unnecessary. Often, discussions or further changes
+result in Collaborators removing their opposition.
 
-If one or more Collaborators oppose a proposed change, then the change can not
-be accepted unless:
-
-* Discussions and/or additional changes result in no Collaborators objecting to
-  the change. Previously-objecting Collaborators do not necessarily have to
-  sign-off on the change, but they should not be opposed to it.
-* The change is escalated to the TSC and the TSC votes to approve the change.
-  This should only happen if disagreements between Collaborators cannot be
-  resolved through discussion.
-
-Collaborators may opt to elevate significant or controversial modifications to
-the TSC by assigning the `tsc-review` label to a pull request or issue. The
-TSC should serve as the final arbiter where required.
+See:
 
 * [Current list of Collaborators](./README.md#current-project-team-members)
 * [A guide for Collaborators](./COLLABORATOR_GUIDE.md)
@@ -56,82 +46,121 @@ TSC should serve as the final arbiter where required.
 
 Typical activities of a Collaborator include:
 
-* helping users and novice contributors
-* contributing code and documentation changes that improve the project
-* reviewing and commenting on issues and pull requests
-* participation in working groups
-* merging pull requests
+* Helping users and novice contributors
+* Contributing code and documentation changes that improve the project
+* Reviewing and commenting on issues and pull requests
+* Participation in working groups
+* Merging pull requests
 
-The TSC periodically reviews the Collaborator list to identify inactive
-Collaborators. Past Collaborators are typically given _Emeritus_ status. Emeriti
-may request that the TSC restore them to active status.
+The TSC can remove inactive Collaborators or provide them with _Emeritus_
+status. Emeriti may request that the TSC restore them to active status.
 
 ## Technical Steering Committee
 
-The Technical Steering Committee (TSC) has final authority over this project
-including:
+A subset of the Collaborators forms the Technical Steering Committee (TSC).
+The TSC has final authority over this project, including:
 
 * Technical direction
 * Project governance and process (including this policy)
 * Contribution policy
 * GitHub repository hosting
 * Conduct guidelines
-* Maintaining the list of additional Collaborators
+* Maintaining the list of Collaborators
 
-* [Current list of TSC members](./README.md#current-project-team-members)
+The current list of TSC members is in
+[the project README](./README.md#current-project-team-members).
 
-The operations of the TSC are governed by the [TSC Charter][] as approved by
-the Node.js Foundation Board of Directors.
+The [TSC Charter][] governs the operations of the TSC. All changes to the
+Charter need approval by the Node.js Board of Directors.
 
 ### TSC Meetings
 
-The TSC meets regularly in a voice conference call. The meeting is run by a
-designated meeting chair approved by the TSC. Each meeting is streamed on
-YouTube.
+The TSC meets in a voice conference call. Each year, the TSC elects a chair to
+run the meetings. The TSC streams its meetings for public viewing on YouTube or
+a similar service.
 
-Items are added to the TSC agenda which are considered contentious or
-are modifications of governance, contribution policy, TSC membership,
-or release process.
+The TSC agenda includes issues that are at an impasse. The intention of the
+agenda is not to review or approve all patches. Collaborators review and approve
+patches on GitHub.
 
-The intention of the agenda is not to approve or review all patches.
-That should happen continuously on GitHub and be handled by the larger
-group of Collaborators.
+Any community member can create a GitHub issue asking that the TSC review
+something. If consensus-seeking fails for an issue, a Collaborator may apply the
+`tsc-agenda` label. That will add it to the TSC meeting agenda.
 
-Any community member or contributor can ask that something be reviewed
-by the TSC by logging a GitHub issue. Any Collaborator, TSC member, or the
-meeting chair can bring the issue to the TSC's attention by applying the
-`tsc-review` label. If consensus-seeking among TSC members fails for a
-particular issue, it may be added to the TSC meeting agenda by adding the
-`tsc-agenda` label.
+Before each TSC meeting, the meeting chair will share the agenda with members of
+the TSC. TSC members can also add items to the agenda at the beginning of each
+meeting. The meeting chair and the TSC cannot veto or remove items.
 
-Prior to each TSC meeting, the meeting chair will share the agenda with
-members of the TSC. TSC members can also add items to the agenda at the
-beginning of each meeting. The meeting chair and the TSC cannot veto or remove
-items.
+The TSC may invite people to take part in a non-voting capacity.
 
-The TSC may invite additional persons to participate in a non-voting capacity.
+During the meeting, the TSC chair ensures that someone takes minutes. After the
+meeting, the TSC chair ensures that someone opens a pull request with the
+minutes.
 
-The meeting chair is responsible for ensuring that minutes are taken and that a
-pull request with the minutes is submitted after the meeting.
-
-Due to the challenges of scheduling a global meeting with participants in
-several timezones, the TSC will seek to resolve as many agenda items as possible
-outside of meetings using
+The TSC seeks to resolve as many issues as possible outside meetings using
 [the TSC issue tracker](https://github.com/nodejs/TSC/issues). The process in
 the issue tracker is:
 
 * A TSC member opens an issue explaining the proposal/issue and @-mentions
   @nodejs/tsc.
-* After 72 hours, if there are two or more `LGTM`s from other TSC members and no
-  explicit opposition from other TSC members, then the proposal is approved.
-* If there are any TSC members objecting, then a conversation ensues until
-  either the proposal is dropped or the objecting members are persuaded. If
-  there is an extended impasse, a motion for a vote may be made.
+* The proposal passes if, after 72 hours, there are two or more TSC approvals
+  and no TSC opposition.
+* If there is an extended impasse, a TSC member may make a motion for a vote.
+
+## Collaborator Nominations
+
+Existing Collaborators can nominate someone to become a Collaborator. Nominees
+should have significant and valuable contributions across the Node.js
+organization.
+
+To nominate a new Collaborator, open an issue in the [nodejs/node][] repository.
+Provide a summary of the nominee's contributions. For example:
+
+* Commits in the [nodejs/node][] repository.
+  * Use the link `https://github.com/nodejs/node/commits?author=GITHUB_ID`
+* Pull requests and issues opened in the [nodejs/node][] repository.
+  * Use the link `https://github.com/nodejs/node/issues?q=author:GITHUB_ID`
+* Comments on pull requests and issues in the [nodejs/node][] repository
+  * Use the link `https://github.com/nodejs/node/issues?q=commenter:GITHUB_ID`
+* Reviews on pull requests in the [nodejs/node][] repository
+  * Use the link `https://github.com/nodejs/node/pulls?q=reviewed-by:GITHUB_ID`
+* Help provided to end users and novice contributors
+* Pull requests and issues opened throughout the Node.js organization
+  * Use the link  `https://github.com/search?q=author:GITHUB_ID+org:nodejs`
+* Comments on pull requests and issues throughout the Node.js organization
+  * Use the link `https://github.com/search?q=commenter:GITHUB_ID+org:nodejs`
+* Participation in other projects, teams, and working groups of the Node.js
+  organization
+* Other participation in the wider Node.js community
+
+Mention @nodejs/collaborators in the issue to notify other Collaborators about
+the nomination.
+
+The nomination passes if no Collaborators oppose it after one week. Otherwise,
+the nomination fails.
+
+There are steps a nominator can take in advance to make a nomination as
+frictionless as possible. Use the [Collaborators discussion page][] to request
+feedback from other Collaborators in private. A nominator may also work with the
+nominee to improve their contribution profile.
+
+It is possible that Collaborators will overlook someone with valuable
+contributions. In that case, the contributor may open an issue or contact a
+Collaborator to request a nomination.
+
+### Onboarding
+
+After the nomination passes, a TSC member onboards the new Collaborator. See
+[the onboarding guide](./doc/onboarding.md) on details of the onboarding
+process. In general, the onboarding should occur within a month after the
+nomination passes.
 
 ## Consensus Seeking Process
 
-The TSC follows a [Consensus Seeking][] decision making model as described by
-the [TSC Charter][].
+The TSC follows a [Consensus Seeking][] decision-making model per the
+[TSC Charter][].
 
+[Collaborators discussion page]: https://github.com/orgs/nodejs/teams/collaborators/discussions
+[Consensus Seeking]: https://en.wikipedia.org/wiki/Consensus-seeking_decision-making
 [TSC Charter]: https://github.com/nodejs/TSC/blob/master/TSC-Charter.md
-[Consensus Seeking]: http://en.wikipedia.org/wiki/Consensus-seeking_decision-making
+[nodejs/node]: https://github.com/nodejs/node

@@ -94,16 +94,13 @@ fs.stat(__filename, common.mustCall(function(err, s) {
   assert.strictEqual(s.isSymbolicLink(), false);
   const keys = [
     'dev', 'mode', 'nlink', 'uid',
-    'gid', 'rdev', 'ino', 'size',
+    'gid', 'rdev', 'blksize', 'ino', 'size', 'blocks',
     'atime', 'mtime', 'ctime', 'birthtime',
     'atimeMs', 'mtimeMs', 'ctimeMs', 'birthtimeMs'
   ];
-  if (!common.isWindows) {
-    keys.push('blocks', 'blksize');
-  }
   const numberFields = [
-    'dev', 'mode', 'nlink', 'uid', 'gid', 'rdev', 'ino', 'size',
-    'atimeMs', 'mtimeMs', 'ctimeMs', 'birthtimeMs'
+    'dev', 'mode', 'nlink', 'uid', 'gid', 'rdev', 'blksize', 'ino', 'size',
+    'blocks', 'atimeMs', 'mtimeMs', 'ctimeMs', 'birthtimeMs'
   ];
   const dateFields = ['atime', 'mtime', 'ctime', 'birthtime'];
   keys.forEach(function(k) {
@@ -130,3 +127,48 @@ fs.stat(__filename, common.mustCall(function(err, s) {
     assert.strictEqual(typeof parsed[k], 'string', `${k} should be a string`);
   });
 }));
+
+['', false, null, undefined, {}, []].forEach((input) => {
+  ['fstat', 'fstatSync'].forEach((fnName) => {
+    assert.throws(
+      () => fs[fnName](input),
+      {
+        code: 'ERR_INVALID_ARG_TYPE',
+        name: 'TypeError',
+        message: 'The "fd" argument must be of type number. ' +
+                 `Received type ${typeof input}`
+      }
+    );
+  });
+});
+
+[false, 1, {}, [], null, undefined].forEach((input) => {
+  assert.throws(
+    () => fs.lstat(input, common.mustNotCall()),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      name: 'TypeError'
+    }
+  );
+  assert.throws(
+    () => fs.lstatSync(input),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      name: 'TypeError'
+    }
+  );
+  assert.throws(
+    () => fs.stat(input, common.mustNotCall()),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      name: 'TypeError'
+    }
+  );
+  assert.throws(
+    () => fs.statSync(input),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      name: 'TypeError'
+    }
+  );
+});

@@ -211,7 +211,7 @@ snippet: "
 "
 frame size: 1
 parameter count: 1
-bytecode array length: 14
+bytecode array length: 12
 bytecodes: [
   /*   30 E> */ B(StackCheck),
   /*   42 S> */ B(LdaZero),
@@ -221,8 +221,6 @@ bytecodes: [
   /*   74 S> */ B(Return),
   /*   86 S> */ B(LdaSmi), I8(2),
   /*   95 S> */ B(Return),
-                B(LdaUndefined),
-  /*   98 S> */ B(Return),
 ]
 constant pool: [
 ]
@@ -276,7 +274,7 @@ bytecodes: [
                 B(JumpIfUndefined), U8(12),
   /*   64 E> */ B(StackCheck),
   /*   92 S> */ B(Ldar), R(1),
-                B(Inc), U8(6),
+                B(Inc), U8(0),
                 B(Star), R(1),
                 B(JumpLoop), U8(11), I8(0),
                 B(LdaUndefined),

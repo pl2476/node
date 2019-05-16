@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file
 
-#include "test/unittests/compiler/instruction-selector-unittest.h"
+#include "test/unittests/compiler/backend/instruction-selector-unittest.h"
+
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -314,8 +316,8 @@ TEST_P(InstructionSelectorFPCmpTest, Parameter) {
   EXPECT_EQ(cmp.cond, s[0]->flags_condition());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorFPCmpTest,
-                        ::testing::ValuesIn(kFPCmpInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest, InstructionSelectorFPCmpTest,
+                         ::testing::ValuesIn(kFPCmpInstructions));
 
 // ----------------------------------------------------------------------------
 // Arithmetic compare instructions integers
@@ -365,8 +367,8 @@ TEST_P(InstructionSelectorCmpTest, Parameter) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorCmpTest,
-                        ::testing::ValuesIn(kCmpInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest, InstructionSelectorCmpTest,
+                         ::testing::ValuesIn(kCmpInstructions));
 
 // ----------------------------------------------------------------------------
 // Shift instructions.
@@ -391,18 +393,18 @@ TEST_P(InstructionSelectorShiftTest, Immediate) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorShiftTest,
-                        ::testing::ValuesIn(kShiftInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest, InstructionSelectorShiftTest,
+                         ::testing::ValuesIn(kShiftInstructions));
 
 TEST_F(InstructionSelectorTest, Word32ShrWithWord32AndWithImmediate) {
   // The available shift operand range is `0 <= imm < 32`, but we also test
   // that immediates outside this range are handled properly (modulo-32).
   TRACED_FORRANGE(int32_t, shift, -32, 63) {
-    int32_t lsb = shift & 0x1f;
+    int32_t lsb = shift & 0x1F;
     TRACED_FORRANGE(int32_t, width, 1, 32 - lsb) {
       uint32_t jnk = rng()->NextInt();
       jnk = (lsb > 0) ? (jnk >> (32 - lsb)) : 0;
-      uint32_t msk = ((0xffffffffu >> (32 - width)) << lsb) | jnk;
+      uint32_t msk = ((0xFFFFFFFFu >> (32 - width)) << lsb) | jnk;
       StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
       m.Return(m.Word32Shr(m.Word32And(m.Parameter(0), m.Int32Constant(msk)),
                            m.Int32Constant(shift)));
@@ -415,11 +417,11 @@ TEST_F(InstructionSelectorTest, Word32ShrWithWord32AndWithImmediate) {
     }
   }
   TRACED_FORRANGE(int32_t, shift, -32, 63) {
-    int32_t lsb = shift & 0x1f;
+    int32_t lsb = shift & 0x1F;
     TRACED_FORRANGE(int32_t, width, 1, 32 - lsb) {
       uint32_t jnk = rng()->NextInt();
       jnk = (lsb > 0) ? (jnk >> (32 - lsb)) : 0;
-      uint32_t msk = ((0xffffffffu >> (32 - width)) << lsb) | jnk;
+      uint32_t msk = ((0xFFFFFFFFu >> (32 - width)) << lsb) | jnk;
       StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
       m.Return(m.Word32Shr(m.Word32And(m.Int32Constant(msk), m.Parameter(0)),
                            m.Int32Constant(shift)));
@@ -438,12 +440,12 @@ TEST_F(InstructionSelectorTest, Word64ShrWithWord64AndWithImmediate) {
   // The available shift operand range is `0 <= imm < 64`, but we also test
   // that immediates outside this range are handled properly (modulo-64).
   TRACED_FORRANGE(int32_t, shift, -64, 127) {
-    int32_t lsb = shift & 0x3f;
+    int32_t lsb = shift & 0x3F;
     TRACED_FORRANGE(int32_t, width, 1, 64 - lsb) {
       uint64_t jnk = rng()->NextInt64();
       jnk = (lsb > 0) ? (jnk >> (64 - lsb)) : 0;
       uint64_t msk =
-          ((V8_UINT64_C(0xffffffffffffffff) >> (64 - width)) << lsb) | jnk;
+          ((uint64_t{0xFFFFFFFFFFFFFFFF} >> (64 - width)) << lsb) | jnk;
       StreamBuilder m(this, MachineType::Int64(), MachineType::Int64());
       m.Return(m.Word64Shr(m.Word64And(m.Parameter(0), m.Int64Constant(msk)),
                            m.Int64Constant(shift)));
@@ -456,12 +458,12 @@ TEST_F(InstructionSelectorTest, Word64ShrWithWord64AndWithImmediate) {
     }
   }
   TRACED_FORRANGE(int32_t, shift, -64, 127) {
-    int32_t lsb = shift & 0x3f;
+    int32_t lsb = shift & 0x3F;
     TRACED_FORRANGE(int32_t, width, 1, 64 - lsb) {
       uint64_t jnk = rng()->NextInt64();
       jnk = (lsb > 0) ? (jnk >> (64 - lsb)) : 0;
       uint64_t msk =
-          ((V8_UINT64_C(0xffffffffffffffff) >> (64 - width)) << lsb) | jnk;
+          ((uint64_t{0xFFFFFFFFFFFFFFFF} >> (64 - width)) << lsb) | jnk;
       StreamBuilder m(this, MachineType::Int64(), MachineType::Int64());
       m.Return(m.Word64Shr(m.Word64And(m.Int64Constant(msk), m.Parameter(0)),
                            m.Int64Constant(shift)));
@@ -547,9 +549,9 @@ TEST_P(InstructionSelectorLogicalTest, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorLogicalTest,
-                        ::testing::ValuesIn(kLogicalInstructions));
-
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorLogicalTest,
+                         ::testing::ValuesIn(kLogicalInstructions));
 
 TEST_F(InstructionSelectorTest, Word64XorMinusOneWithParameter) {
   {
@@ -647,7 +649,7 @@ TEST_F(InstructionSelectorTest, Word32AndWithImmediateWithWord32Shr) {
   // The available shift operand range is `0 <= imm < 32`, but we also test
   // that immediates outside this range are handled properly (modulo-32).
   TRACED_FORRANGE(int32_t, shift, -32, 63) {
-    int32_t lsb = shift & 0x1f;
+    int32_t lsb = shift & 0x1F;
     TRACED_FORRANGE(int32_t, width, 1, 31) {
       uint32_t msk = (1 << width) - 1;
       StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
@@ -663,7 +665,7 @@ TEST_F(InstructionSelectorTest, Word32AndWithImmediateWithWord32Shr) {
     }
   }
   TRACED_FORRANGE(int32_t, shift, -32, 63) {
-    int32_t lsb = shift & 0x1f;
+    int32_t lsb = shift & 0x1F;
     TRACED_FORRANGE(int32_t, width, 1, 31) {
       uint32_t msk = (1 << width) - 1;
       StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
@@ -686,9 +688,9 @@ TEST_F(InstructionSelectorTest, Word64AndWithImmediateWithWord64Shr) {
   // The available shift operand range is `0 <= imm < 64`, but we also test
   // that immediates outside this range are handled properly (modulo-64).
   TRACED_FORRANGE(int64_t, shift, -64, 127) {
-    int64_t lsb = shift & 0x3f;
+    int64_t lsb = shift & 0x3F;
     TRACED_FORRANGE(int64_t, width, 1, 63) {
-      uint64_t msk = (V8_UINT64_C(1) << width) - 1;
+      uint64_t msk = (uint64_t{1} << width) - 1;
       StreamBuilder m(this, MachineType::Int64(), MachineType::Int64());
       m.Return(m.Word64And(m.Word64Shr(m.Parameter(0), m.Int64Constant(shift)),
                            m.Int64Constant(msk)));
@@ -702,9 +704,9 @@ TEST_F(InstructionSelectorTest, Word64AndWithImmediateWithWord64Shr) {
     }
   }
   TRACED_FORRANGE(int64_t, shift, -64, 127) {
-    int64_t lsb = shift & 0x3f;
+    int64_t lsb = shift & 0x3F;
     TRACED_FORRANGE(int64_t, width, 1, 63) {
-      uint64_t msk = (V8_UINT64_C(1) << width) - 1;
+      uint64_t msk = (uint64_t{1} << width) - 1;
       StreamBuilder m(this, MachineType::Int64(), MachineType::Int64());
       m.Return(
           m.Word64And(m.Int64Constant(msk),
@@ -822,8 +824,8 @@ TEST_P(InstructionSelectorMulDivTest, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorMulDivTest,
-                        ::testing::ValuesIn(kMulDivInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest, InstructionSelectorMulDivTest,
+                         ::testing::ValuesIn(kMulDivInstructions));
 
 // ----------------------------------------------------------------------------
 // MOD instructions.
@@ -842,8 +844,8 @@ TEST_P(InstructionSelectorModTest, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorModTest,
-                        ::testing::ValuesIn(kModInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest, InstructionSelectorModTest,
+                         ::testing::ValuesIn(kModInstructions));
 
 // ----------------------------------------------------------------------------
 // Floating point instructions.
@@ -862,8 +864,9 @@ TEST_P(InstructionSelectorFPArithTest, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorFPArithTest,
-                        ::testing::ValuesIn(kFPArithInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorFPArithTest,
+                         ::testing::ValuesIn(kFPArithInstructions));
 // ----------------------------------------------------------------------------
 // Integer arithmetic
 // ----------------------------------------------------------------------------
@@ -882,10 +885,9 @@ TEST_P(InstructionSelectorIntArithTwoTest, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorIntArithTwoTest,
-                        ::testing::ValuesIn(kAddSubInstructions));
-
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorIntArithTwoTest,
+                         ::testing::ValuesIn(kAddSubInstructions));
 
 // ----------------------------------------------------------------------------
 // One node.
@@ -907,9 +909,9 @@ TEST_P(InstructionSelectorIntArithOneTest, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorIntArithOneTest,
-                        ::testing::ValuesIn(kAddSubOneInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorIntArithOneTest,
+                         ::testing::ValuesIn(kAddSubOneInstructions));
 // ----------------------------------------------------------------------------
 // Conversions.
 // ----------------------------------------------------------------------------
@@ -927,9 +929,9 @@ TEST_P(InstructionSelectorConversionTest, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorConversionTest,
-                        ::testing::ValuesIn(kConversionInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorConversionTest,
+                         ::testing::ValuesIn(kConversionInstructions));
 
 TEST_F(InstructionSelectorTest, ChangesFromToSmi) {
   {
@@ -973,9 +975,9 @@ TEST_P(CombineChangeFloat64ToInt32WithRoundFloat64, Parameter) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        CombineChangeFloat64ToInt32WithRoundFloat64,
-                        ::testing::ValuesIn(kFloat64RoundInstructions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         CombineChangeFloat64ToInt32WithRoundFloat64,
+                         ::testing::ValuesIn(kFloat64RoundInstructions));
 
 typedef InstructionSelectorTestWithParam<Conversion>
     CombineChangeFloat32ToInt32WithRoundFloat32;
@@ -995,10 +997,9 @@ TEST_P(CombineChangeFloat32ToInt32WithRoundFloat32, Parameter) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        CombineChangeFloat32ToInt32WithRoundFloat32,
-                        ::testing::ValuesIn(kFloat32RoundInstructions));
-
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         CombineChangeFloat32ToInt32WithRoundFloat32,
+                         ::testing::ValuesIn(kFloat32RoundInstructions));
 
 TEST_F(InstructionSelectorTest, ChangeFloat64ToInt32OfChangeFloat32ToFloat64) {
   {
@@ -1170,9 +1171,9 @@ TEST_P(InstructionSelectorElidedChangeUint32ToUint64Test, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorElidedChangeUint32ToUint64Test,
-                        ::testing::ValuesIn(kCanElideChangeUint32ToUint64));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorElidedChangeUint32ToUint64Test,
+                         ::testing::ValuesIn(kCanElideChangeUint32ToUint64));
 
 TEST_F(InstructionSelectorTest, ChangeUint32ToUint64AfterLoad) {
   // For each case, make sure the `ChangeUint32ToUint64` node turned into a
@@ -1475,10 +1476,9 @@ TEST_P(InstructionSelectorMemoryAccessTest, StoreWithParameters) {
   EXPECT_EQ(kMode_MRI, s[0]->addressing_mode());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorMemoryAccessTest,
-                        ::testing::ValuesIn(kMemoryAccesses));
-
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorMemoryAccessTest,
+                         ::testing::ValuesIn(kMemoryAccesses));
 
 // ----------------------------------------------------------------------------
 // Load immediate.
@@ -1550,9 +1550,9 @@ TEST_P(InstructionSelectorMemoryAccessImmTest, StoreZero) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorMemoryAccessImmTest,
-                        ::testing::ValuesIn(kMemoryAccessesImm));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorMemoryAccessImmTest,
+                         ::testing::ValuesIn(kMemoryAccessesImm));
 
 typedef InstructionSelectorTestWithParam<MemoryAccessImm2>
     InstructionSelectorMemoryAccessUnalignedImmTest;
@@ -1561,8 +1561,8 @@ TEST_P(InstructionSelectorMemoryAccessUnalignedImmTest, StoreZero) {
   const MemoryAccessImm2 memacc = GetParam();
   TRACED_FOREACH(int32_t, index, memacc.immediates) {
     StreamBuilder m(this, MachineType::Int32(), MachineType::Pointer());
-    bool unaligned_store_supported = m.machine()->UnalignedStoreSupported(
-        MachineType::TypeForRepresentation(memacc.type.representation()), 1);
+    bool unaligned_store_supported =
+        m.machine()->UnalignedStoreSupported(memacc.type.representation());
     m.UnalignedStore(memacc.type.representation(), m.Parameter(0),
                      m.Int32Constant(index), m.Int32Constant(0));
     m.Return(m.Int32Constant(0));
@@ -1581,9 +1581,9 @@ TEST_P(InstructionSelectorMemoryAccessUnalignedImmTest, StoreZero) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorMemoryAccessUnalignedImmTest,
-                        ::testing::ValuesIn(kMemoryAccessesImmUnaligned));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorMemoryAccessUnalignedImmTest,
+                         ::testing::ValuesIn(kMemoryAccessesImmUnaligned));
 
 // ----------------------------------------------------------------------------
 // Load/store offsets more than 16 bits.
@@ -1626,10 +1626,9 @@ TEST_P(InstructionSelectorMemoryAccessImmMoreThan16bitTest,
   }
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorMemoryAccessImmMoreThan16bitTest,
-                        ::testing::ValuesIn(kMemoryAccessImmMoreThan16bit));
-
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorMemoryAccessImmMoreThan16bitTest,
+                         ::testing::ValuesIn(kMemoryAccessImmMoreThan16bit));
 
 // ----------------------------------------------------------------------------
 // kMips64Cmp with zero testing.

@@ -24,9 +24,10 @@ const common = require('../common');
 const assert = require('assert');
 const fs = require('fs');
 
-common.refreshTmpDir();
+const tmpdir = require('../common/tmpdir');
+tmpdir.refresh();
 
-const stream = fs.createWriteStream(`${common.tmpDir}/out`, {
+const stream = fs.createWriteStream(`${tmpdir.path}/out`, {
   highWaterMark: 10
 });
 const err = new Error('BAM');
@@ -37,17 +38,17 @@ fs.write = function() {
   switch (writeCalls++) {
     case 0:
       console.error('first write');
-      // first time is ok.
+      // First time is ok.
       return write.apply(fs, arguments);
     case 1:
-      // then it breaks
+      // Then it breaks.
       console.error('second write');
       const cb = arguments[arguments.length - 1];
       return process.nextTick(function() {
         cb(err);
       });
     default:
-      // and should not be called again!
+      // It should not be called again!
       throw new Error('BOOM!');
   }
 };

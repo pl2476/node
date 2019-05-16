@@ -6,20 +6,14 @@ const bench = common.createBenchmark(main, {
   size: [2, 1024, 1024 * 1024]
 });
 
-var dur, type, encoding, size;
-var server;
-
 const path = require('path');
 const fs = require('fs');
 const cert_dir = path.resolve(__dirname, '../../test/fixtures');
 var options;
 const tls = require('tls');
 
-function main(conf) {
-  dur = +conf.dur;
-  type = conf.type;
-  size = +conf.size;
-
+function main({ dur, type, size }) {
+  var encoding;
   var chunk;
   switch (type) {
     case 'buf':
@@ -44,12 +38,12 @@ function main(conf) {
     ciphers: 'AES256-GCM-SHA384'
   };
 
-  server = tls.createServer(options, onConnection);
-  setTimeout(done, dur * 1000);
+  const server = tls.createServer(options, onConnection);
   var conn;
-  server.listen(common.PORT, function() {
+  server.listen(common.PORT, () => {
     const opt = { port: common.PORT, rejectUnauthorized: false };
-    conn = tls.connect(opt, function() {
+    conn = tls.connect(opt, () => {
+      setTimeout(done, dur * 1000);
       bench.start();
       conn.on('drain', write);
       write();
@@ -62,7 +56,7 @@ function main(conf) {
 
   var received = 0;
   function onConnection(conn) {
-    conn.on('data', function(chunk) {
+    conn.on('data', (chunk) => {
       received += chunk.length;
     });
   }

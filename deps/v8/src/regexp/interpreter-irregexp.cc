@@ -4,8 +4,6 @@
 
 // A simple interpreter for the Irregexp byte code.
 
-#ifdef V8_INTERPRETED_REGEXP
-
 #include "src/regexp/interpreter-irregexp.h"
 
 #include "src/ast/ast.h"
@@ -114,13 +112,13 @@ static void TraceInterpreter(const byte* code_base,
 
 
 static int32_t Load32Aligned(const byte* pc) {
-  DCHECK((reinterpret_cast<intptr_t>(pc) & 3) == 0);
+  DCHECK_EQ(0, reinterpret_cast<intptr_t>(pc) & 3);
   return *reinterpret_cast<const int32_t *>(pc);
 }
 
 
 static int32_t Load16Aligned(const byte* pc) {
-  DCHECK((reinterpret_cast<intptr_t>(pc) & 1) == 0);
+  DCHECK_EQ(0, reinterpret_cast<intptr_t>(pc) & 1);
   return *reinterpret_cast<const uint16_t *>(pc);
 }
 
@@ -300,7 +298,7 @@ static RegExpImpl::IrregexpResult RawMatch(Isolate* isolate,
         break;
       }
       BYTECODE(LOAD_4_CURRENT_CHARS) {
-        DCHECK(sizeof(Char) == 1);
+        DCHECK_EQ(1, sizeof(Char));
         int pos = current + (insn >> BYTECODE_SHIFT);
         if (pos + 4 > subject.length() || pos < 0) {
           pc = code_base + Load32Aligned(pc + 4);
@@ -317,7 +315,7 @@ static RegExpImpl::IrregexpResult RawMatch(Isolate* isolate,
         break;
       }
       BYTECODE(LOAD_4_CURRENT_CHARS_UNCHECKED) {
-        DCHECK(sizeof(Char) == 1);
+        DCHECK_EQ(1, sizeof(Char));
         int pos = current + (insn >> BYTECODE_SHIFT);
         Char next1 = subject[pos + 1];
         Char next2 = subject[pos + 2];
@@ -519,6 +517,7 @@ static RegExpImpl::IrregexpResult RawMatch(Isolate* isolate,
         break;
       }
       BYTECODE(CHECK_NOT_BACK_REF_NO_CASE_UNICODE)
+      V8_FALLTHROUGH;
       BYTECODE(CHECK_NOT_BACK_REF_NO_CASE) {
         bool unicode =
             (insn & BYTECODE_MASK) == BC_CHECK_NOT_BACK_REF_NO_CASE_UNICODE;
@@ -537,6 +536,7 @@ static RegExpImpl::IrregexpResult RawMatch(Isolate* isolate,
         break;
       }
       BYTECODE(CHECK_NOT_BACK_REF_NO_CASE_UNICODE_BACKWARD)
+      V8_FALLTHROUGH;
       BYTECODE(CHECK_NOT_BACK_REF_NO_CASE_BACKWARD) {
         bool unicode = (insn & BYTECODE_MASK) ==
                        BC_CHECK_NOT_BACK_REF_NO_CASE_UNICODE_BACKWARD;
@@ -596,7 +596,7 @@ RegExpImpl::IrregexpResult IrregexpInterpreter::Match(
   DisallowHeapAllocation no_gc;
   const byte* code_base = code_array->GetDataStartAddress();
   uc16 previous_char = '\n';
-  String::FlatContent subject_content = subject->GetFlatContent();
+  String::FlatContent subject_content = subject->GetFlatContent(no_gc);
   if (subject_content.IsOneByte()) {
     Vector<const uint8_t> subject_vector = subject_content.ToOneByteVector();
     if (start_position != 0) previous_char = subject_vector[start_position - 1];
@@ -621,5 +621,3 @@ RegExpImpl::IrregexpResult IrregexpInterpreter::Match(
 
 }  // namespace internal
 }  // namespace v8
-
-#endif  // V8_INTERPRETED_REGEXP

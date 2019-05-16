@@ -21,6 +21,7 @@ using testing::UnorderedElementsAre;
 namespace v8 {
 namespace internal {
 namespace compiler {
+namespace graph_reducer_unittest {
 
 namespace {
 
@@ -45,12 +46,12 @@ const uint8_t kOpcodeC2 = 32;
 static TestOperator kOpA0(kOpcodeA0, Operator::kNoWrite, "opa1", 0, 1);
 static TestOperator kOpA1(kOpcodeA1, Operator::kNoProperties, "opa2", 1, 1);
 static TestOperator kOpA2(kOpcodeA2, Operator::kNoProperties, "opa3", 2, 1);
-static TestOperator kOpB0(kOpcodeB0, Operator::kNoWrite, "opa0", 0, 0);
-static TestOperator kOpB1(kOpcodeB1, Operator::kNoWrite, "opa1", 1, 0);
-static TestOperator kOpB2(kOpcodeB2, Operator::kNoWrite, "opa2", 2, 0);
-static TestOperator kOpC0(kOpcodeC0, Operator::kNoWrite, "opc0", 0, 0);
-static TestOperator kOpC1(kOpcodeC1, Operator::kNoWrite, "opc1", 1, 0);
-static TestOperator kOpC2(kOpcodeC2, Operator::kNoWrite, "opc2", 2, 0);
+static TestOperator kOpB0(kOpcodeB0, Operator::kNoWrite, "opb0", 0, 1);
+static TestOperator kOpB1(kOpcodeB1, Operator::kNoWrite, "opb1", 1, 1);
+static TestOperator kOpB2(kOpcodeB2, Operator::kNoWrite, "opb2", 2, 1);
+static TestOperator kOpC0(kOpcodeC0, Operator::kNoWrite, "opc0", 0, 1);
+static TestOperator kOpC1(kOpcodeC1, Operator::kNoWrite, "opc1", 1, 1);
+static TestOperator kOpC2(kOpcodeC2, Operator::kNoWrite, "opc2", 2, 1);
 
 struct MockReducer : public Reducer {
   MOCK_CONST_METHOD0(reducer_name, const char*());
@@ -750,7 +751,7 @@ TEST_F(GraphReducerTest, Sorter1) {
     Node* n1 = graph()->NewNode(&kOpA0);
     Node* n2 = graph()->NewNode(&kOpA1, n1);
     Node* n3 = graph()->NewNode(&kOpA1, n1);
-    Node* end = NULL;  // Initialize to please the compiler.
+    Node* end = nullptr;  // Initialize to please the compiler.
 
     if (i == 0) end = graph()->NewNode(&kOpA2, n2, n3);
     if (i == 1) end = graph()->NewNode(&kOpA2, n3, n2);
@@ -872,6 +873,7 @@ TEST_F(GraphReducerTest, Order) {
   }
 }
 
+}  // namespace graph_reducer_unittest
 }  // namespace compiler
 }  // namespace internal
 }  // namespace v8

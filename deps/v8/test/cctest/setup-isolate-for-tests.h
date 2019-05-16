@@ -12,13 +12,13 @@ namespace internal {
 
 class SetupIsolateDelegateForTests : public SetupIsolateDelegate {
  public:
-  SetupIsolateDelegateForTests() : SetupIsolateDelegate() {}
-  virtual ~SetupIsolateDelegateForTests() {}
+  explicit SetupIsolateDelegateForTests(bool create_heap_objects)
+      : SetupIsolateDelegate(create_heap_objects) {}
+  ~SetupIsolateDelegateForTests() override = default;
 
-  void SetupBuiltins(Isolate* isolate, bool create_heap_objects) override;
+  void SetupBuiltins(Isolate* isolate) override;
 
-  void SetupInterpreter(interpreter::Interpreter* interpreter,
-                        bool create_heap_objects) override;
+  bool SetupHeap(Heap* heap) override;
 };
 
 }  // namespace internal

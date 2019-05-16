@@ -20,7 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-// test compression/decompression with dictionary
+// Test compression/decompression with dictionary
 
 const common = require('../common');
 const assert = require('assert');
@@ -167,7 +167,7 @@ function deflateRawResetDictionaryTest(spdyDict) {
   });
 }
 
-for (const dict of [spdyDict, ...common.getArrayBufferViews(spdyDict)]) {
+for (const dict of [spdyDict, ...common.getBufferSources(spdyDict)]) {
   basicDictionaryTest(dict);
   deflateResetDictionaryTest(dict);
   rawDictionaryTest(dict);

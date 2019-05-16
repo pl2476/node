@@ -1,6 +1,6 @@
 Tests that all sessions get console api notifications.
 Error in 2
-From session 2
+From session 1
 {
     method : Runtime.consoleAPICalled
     params : {
@@ -27,7 +27,7 @@ From session 2
         type : error
     }
 }
-From session 1
+From session 2
 {
     method : Runtime.consoleAPICalled
     params : {
@@ -55,7 +55,7 @@ From session 1
     }
 }
 Logging in 1
-From session 2
+From session 1
 {
     method : Runtime.consoleAPICalled
     params : {
@@ -82,7 +82,7 @@ From session 2
         type : log
     }
 }
-From session 1
+From session 2
 {
     method : Runtime.consoleAPICalled
     params : {
@@ -110,32 +110,6 @@ From session 1
     }
 }
 Error in setTimeout 1
-From session 2
-{
-    method : Runtime.consoleAPICalled
-    params : {
-        args : [
-            [0] : {
-                type : string
-                value : a
-            }
-        ]
-        executionContextId : <executionContextId>
-        stackTrace : {
-            callFrames : [
-                [0] : {
-                    columnNumber : 25
-                    functionName : setTimeout
-                    lineNumber : 0
-                    scriptId : <scriptId>
-                    url : 
-                }
-            ]
-        }
-        timestamp : <timestamp>
-        type : error
-    }
-}
 From session 1
 {
     method : Runtime.consoleAPICalled
@@ -151,7 +125,33 @@ From session 1
             callFrames : [
                 [0] : {
                     columnNumber : 25
-                    functionName : setTimeout
+                    functionName : 
+                    lineNumber : 0
+                    scriptId : <scriptId>
+                    url : 
+                }
+            ]
+        }
+        timestamp : <timestamp>
+        type : error
+    }
+}
+From session 2
+{
+    method : Runtime.consoleAPICalled
+    params : {
+        args : [
+            [0] : {
+                type : string
+                value : a
+            }
+        ]
+        executionContextId : <executionContextId>
+        stackTrace : {
+            callFrames : [
+                [0] : {
+                    columnNumber : 25
+                    functionName : 
                     lineNumber : 0
                     scriptId : <scriptId>
                     url : 
@@ -163,32 +163,6 @@ From session 1
     }
 }
 Logging in setTimeout 2
-From session 2
-{
-    method : Runtime.consoleAPICalled
-    params : {
-        args : [
-            [0] : {
-                type : string
-                value : b
-            }
-        ]
-        executionContextId : <executionContextId>
-        stackTrace : {
-            callFrames : [
-                [0] : {
-                    columnNumber : 25
-                    functionName : setTimeout
-                    lineNumber : 0
-                    scriptId : <scriptId>
-                    url : 
-                }
-            ]
-        }
-        timestamp : <timestamp>
-        type : log
-    }
-}
 From session 1
 {
     method : Runtime.consoleAPICalled
@@ -204,7 +178,33 @@ From session 1
             callFrames : [
                 [0] : {
                     columnNumber : 25
-                    functionName : setTimeout
+                    functionName : 
+                    lineNumber : 0
+                    scriptId : <scriptId>
+                    url : 
+                }
+            ]
+        }
+        timestamp : <timestamp>
+        type : log
+    }
+}
+From session 2
+{
+    method : Runtime.consoleAPICalled
+    params : {
+        args : [
+            [0] : {
+                type : string
+                value : b
+            }
+        ]
+        executionContextId : <executionContextId>
+        stackTrace : {
+            callFrames : [
+                [0] : {
+                    columnNumber : 25
+                    functionName : 
                     lineNumber : 0
                     scriptId : <scriptId>
                     url : 

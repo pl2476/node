@@ -118,6 +118,14 @@
   # Invalid according to ES2015 syntax. (Details: crbug.com/726625)
   'ecma_3/extensions/regress-368516': [FAIL],
 
+  # Function.prototype.toString revision.
+  # (https://chromium-review.googlesource.com/c/546941#message-5dc0f5efe277388501e8870e39ec70383dfc7db8)
+  'js1_5/Scope/regress-185485': [FAIL],
+
+  # Georgina is bicameral as of Unicode 11, but the test assumes that it's unicameral.
+  # no_i18n build has an old ICU data and Georgian is treated as unicameral.
+  'ecma/String/15.5.4.12-3': [FAIL, ['no_i18n == True', PASS]],
+
   ##################### SKIPPED TESTS #####################
 
   # This test checks that we behave properly in an out-of-memory
@@ -150,7 +158,16 @@
   'js1_5/Regress/regress-462292': [SKIP],
   'js1_5/decompilation/regress-443071-01': [SKIP],
 
+  # This test checks that 'unshift' doesn't cause a OOM. Since the range error
+  # will get thrown at the end of the operation, this test runs for a long time.
+  # https://crbug.com/v8/8120
+  'ecma_3/Array/regress-322135-04': [SKIP],
+
   ##################### SLOW TESTS #####################
+
+  # Compiles a long chain of && or || operations, can time out under slower
+  # variants.
+  'js1_5/Expressions/regress-394673': [PASS, NO_VARIANTS],
 
   # This takes a long time to run (~100 seconds). It should only be run
   # by the really patient.
@@ -172,6 +189,11 @@
   # characters. This takes a long time to run (~32 seconds).
   'js1_5/GC/regress-348532': [SKIP],
 
+  # Takes a really long time to run, creating an Array of length
+  # 2^32 - 1. Related to removal of "sparse" array support for
+  # splice and friends:
+  # https://bugs.chromium.org/p/v8/issues/detail?id=8131.
+  'ecma_3/Array/regress-322135-03': [SKIP],
 
   # Runs for too long: huge array with getters and setters. As it says
   # in the test: "This test will probably run out of memory".
@@ -217,7 +239,22 @@
 
   # 1050186: Arm/MIPS vm is broken; probably unrelated to dates
   'ecma/Array/15.4.4.5-3': [PASS, ['arch == arm or arch == mipsel or arch == mips', FAIL]],
-  'ecma/Date/15.9.5.22-2': [PASS, ['arch == arm or arch == mipsel or arch == mips', FAIL]],
+
+  # These 4 tests made an incorrect assumption that the timezone offset of any
+  # given timezone has not changed over time. With icu-timezone-data enabled
+  # and https://github.com/tc39/ecma262/pull/778 implemented, the historical
+  # timezone offset is handled properly and these tests are broken in i18n
+  # build. It's non-trivial to fix them because they strive to work in *any*
+  # timezone.
+  # TODO(jshin): Add equivalent tests with a specific timezone using TZ variable
+  # on Linux to mjsunit.
+
+  'ecma/Date/15.9.5.16': [PASS,  ['no_i18n == False', FAIL]],
+  'ecma/Date/15.9.5.18': [PASS,  ['no_i18n == False', FAIL]],
+  'ecma/Date/15.9.5.22-1': [PASS, ['no_i18n == False', FAIL]],
+
+  # 1050186: Arm/MIPS vm is broken;  probably unrelated to dates
+  'ecma/Date/15.9.5.22-2': [PASS, ['no_i18n == False or arch == arm or arch == mipsel or arch == mips', FAIL]],
 
   # Flaky test that fails due to what appears to be a bug in the test.
   # Occurs depending on current time
@@ -297,12 +334,16 @@
   # This section is for tests that fail in both V8 and JSC.  Thus they
   # have been determined to be incompatible between Mozilla and V8/JSC.
 
+  # d8 does not implement a window object.
+  'js1_5/Regress/regress-317476': [FAIL],
+  'js1_5/Regress/regress-314401': [FAIL],
+
+  # d8 implements setTimeout, but not clearTimeout.
+  'js1_5/GC/regress-319980-01': [FAIL],
+
   # Any local 'arguments' variable should not be allowed to shadow the value
   # returned via the indirect 'arguments' property accessor.
   'js1_4/Functions/function-001': [FAIL_OK],
-
-  # toPrecision argument restricted to range 1..21 in JSC/V8 and ECMA-262
-  'js1_5/Regress/regress-452346': [FAIL_OK],
 
   # Fail because it calls builtins as functions and do not expect the
   # builtin to have undefined as the receiver.
@@ -673,10 +714,6 @@
   # is given null or undefined as this argument (and so does firefox nightly).
   'js1_5/Regress/regress-295052': [FAIL],
 
-  # Bug 1202597: New js1_5/Expressions/regress-394673 is failing.
-  # Marked as: Will not fix. V8 throws an acceptable RangeError.
-  'js1_5/Expressions/regress-394673': [FAIL],
-
   # Bug 762: http://code.google.com/p/v8/issues/detail?id=762
   # We do not correctly handle assignments within "with"
   'ecma_3/Statements/12.10-01': [FAIL],
@@ -807,6 +844,11 @@
   # error message in debug mode.
   'js1_5/extensions/regress-336410-1': [FAIL_OK, ['mode == debug and arch == x64', NO_VARIANTS]],
 
+  # These tests fail due to __defineGetter__ & friends throwing
+  # for undefined receivers.
+  'js1_5/extensions/regress-313500': [SKIP],
+  'js1_5/extensions/regress-325269': [SKIP],
+
   ##################### DECOMPILATION TESTS #####################
 
   # We don't really about the outcome of running the
@@ -870,10 +912,10 @@
 
 ['no_i18n == True and mode == debug', {
   # Tests too slow for no18n debug.
-  'ecma_3/Statements/regress-302439': [PASS, FAST_VARIANTS],
+  'ecma_3/Statements/regress-302439': [PASS, NO_VARIANTS],
   'js1_5/Regress/regress-98901': [SKIP],
-  'ecma_3/RegExp/perlstress-001': [PASS, FAST_VARIANTS],
-  'js1_5/extensions/regress-311161': [FAIL_OK, FAST_VARIANTS],
+  'ecma_3/RegExp/perlstress-001': [PASS, NO_VARIANTS],
+  'js1_5/extensions/regress-311161': [FAIL_OK, NO_VARIANTS],
 }],  # 'no_i18n == True and mode == debug'
 
 
@@ -929,7 +971,7 @@
 }], # 'arch == mipsel and simulator_run'
 
 ['arch == mips64el and simulator_run', {
-  'js1_5/extensions/regress-355497': [FAIL_OK, 'Flags: --sim-stack-size=512'],
+  'js1_5/extensions/regress-355497': [FAIL_OK, '--sim-stack-size=512'],
 }], # 'arch == mips64el and simulator_run'
 
 ['arch == mips', {
@@ -978,11 +1020,26 @@
   'js1_5/extensions/regress-336410-1': [SKIP],
 
   #BUG(3152): Avoid C stack overflow.
-  'js1_5/extensions/regress-355497': [FAIL_OK, 'Flags: --sim-stack-size=512'],
+  'js1_5/extensions/regress-355497': [FAIL_OK, '--sim-stack-size=512'],
 }],  # 'arch == arm64 and simulator_run'
 
-['variant == wasm_traps', {
+['system == android', {
+  # https://crbug.com/v8/8146
+  'ecma/Array/15.4.4.5-3': [FAIL],
+}],  # 'system == android'
+
+['tsan', {
+  # https://crbug.com/v8/7632
+  'ecma_3/RegExp/regress-85721': [SKIP],
+}],  # tsan
+
+['variant == no_wasm_traps', {
   '*': [SKIP],
-}],  # variant == wasm_traps
+}],  # variant == no_wasm_traps
+
+##############################################################################
+['variant == jitless and not embedded_builtins', {
+  '*': [SKIP],
+}], # variant == jitless and not embedded_builtins
 
 ]

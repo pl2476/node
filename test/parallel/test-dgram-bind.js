@@ -27,17 +27,17 @@ const dgram = require('dgram');
 const socket = dgram.createSocket('udp4');
 
 socket.on('listening', common.mustCall(() => {
-  assert.throws(() => {
+  common.expectsError(() => {
     socket.bind();
-  }, common.expectsError({
+  }, {
     code: 'ERR_SOCKET_ALREADY_BOUND',
     type: Error,
     message: /^Socket is already bound$/
-  }));
+  });
 
   socket.close();
 }));
 
-const result = socket.bind(); // should not throw
+const result = socket.bind(); // Should not throw.
 
-assert.strictEqual(result, socket); // should have returned itself
+assert.strictEqual(result, socket); // Should have returned itself.

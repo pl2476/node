@@ -4,6 +4,8 @@
 
 #include "test/cctest/interpreter/interpreter-tester.h"
 
+#include "src/api-inl.h"
+#include "src/heap/heap-inl.h"
 #include "src/objects-inl.h"
 
 namespace v8 {
@@ -23,22 +25,23 @@ InterpreterTester::InterpreterTester(
       source_(source),
       bytecode_(bytecode),
       feedback_metadata_(feedback_metadata) {
-  i::FLAG_stress_fullcodegen = false;
   i::FLAG_always_opt = false;
 }
 
 InterpreterTester::InterpreterTester(
     Isolate* isolate, Handle<BytecodeArray> bytecode,
     MaybeHandle<FeedbackMetadata> feedback_metadata, const char* filter)
-    : InterpreterTester(isolate, nullptr, bytecode, feedback_metadata, filter) {
-}
+    : InterpreterTester(
+          isolate, nullptr, bytecode,
+          FLAG_lite_mode ? MaybeHandle<FeedbackMetadata>() : feedback_metadata,
+          filter) {}
 
 InterpreterTester::InterpreterTester(Isolate* isolate, const char* source,
                                      const char* filter)
     : InterpreterTester(isolate, source, MaybeHandle<BytecodeArray>(),
                         MaybeHandle<FeedbackMetadata>(), filter) {}
 
-InterpreterTester::~InterpreterTester() {}
+InterpreterTester::~InterpreterTester() = default;
 
 Local<Message> InterpreterTester::CheckThrowsReturnMessage() {
   TryCatch try_catch(reinterpret_cast<v8::Isolate*>(isolate_));
@@ -68,6 +71,8 @@ std::string InterpreterTester::SourceForBody(const char* body) {
 std::string InterpreterTester::function_name() {
   return std::string(kFunctionName);
 }
+
+const char InterpreterTester::kFunctionName[] = "f";
 
 }  // namespace interpreter
 }  // namespace internal

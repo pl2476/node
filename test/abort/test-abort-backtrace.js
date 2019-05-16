@@ -1,8 +1,5 @@
 'use strict';
 const common = require('../common');
-if (common.isWindows)
-  common.skip('Backtraces unimplemented on Windows.');
-
 const assert = require('assert');
 const cp = require('child_process');
 
@@ -13,7 +10,7 @@ if (process.argv[2] === 'child') {
   const stderr = child.stderr.toString();
 
   assert.strictEqual(child.stdout.toString(), '');
-  // stderr will be empty for systems that don't support backtraces.
+  // Stderr will be empty for systems that don't support backtraces.
   if (stderr !== '') {
     const frames = stderr.trimRight().split('\n').map((s) => s.trim());
 
@@ -21,8 +18,11 @@ if (process.argv[2] === 'child') {
       assert.fail(`Each frame should start with a frame number:\n${stderr}`);
     }
 
-    if (!frames.some((frame) => frame.includes(`[${process.execPath}]`))) {
-      assert.fail(`Some frames should include the binary name:\n${stderr}`);
+    if (!common.isWindows) {
+      const { getBinaryPath } = require('../common/shared-lib-util');
+      if (!frames.some((frame) => frame.includes(`[${getBinaryPath()}]`))) {
+        assert.fail(`Some frames should include the binary name:\n${stderr}`);
+      }
     }
   }
 }

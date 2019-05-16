@@ -1,29 +1,29 @@
 'use strict';
 const common = require('../common.js');
-const path = require('path');
+const { win32 } = require('path');
 
 const bench = common.createBenchmark(main, {
   props: [
-    ['C:\\', 'C:\\path\\dir', 'index.html', '.html', 'index'].join('|')
+    ['C:\\', 'C:\\path\\dir', 'index.html', '.html', 'index'].join('|'),
   ],
-  n: [1e7]
+  n: [1e6]
 });
 
-function main(conf) {
-  const n = +conf.n;
-  const p = path.win32;
-  const props = String(conf.props).split('|');
+function main({ n, props }) {
+  props = props.split('|');
   const obj = {
     root: props[0] || '',
     dir: props[1] || '',
-    base: props[2] || '',
+    base: '',
     ext: props[3] || '',
-    name: props[4] || '',
+    name: '',
   };
 
   bench.start();
   for (var i = 0; i < n; i++) {
-    p.format(obj);
+    obj.base = `a${i}${props[2] || ''}`;
+    obj.name = `a${i}${props[4] || ''}`;
+    win32.format(obj);
   }
   bench.end(n);
 }

@@ -2,6 +2,7 @@
 'use strict';
 
 const common = require('../common.js');
+const dgram = require('dgram');
 const PORT = common.PORT;
 
 // `num` is the number of send requests to queue up each time.
@@ -14,24 +15,8 @@ const bench = common.createBenchmark(main, {
   dur: [5]
 });
 
-var dur;
-var len;
-var num;
-var type;
-var chunk;
-
-function main(conf) {
-  dur = +conf.dur;
-  len = +conf.len;
-  num = +conf.num;
-  type = conf.type;
-  chunk = Buffer.allocUnsafe(len);
-  server();
-}
-
-const dgram = require('dgram');
-
-function server() {
+function main({ dur, len, num, type }) {
+  const chunk = Buffer.allocUnsafe(len);
   var sent = 0;
   var received = 0;
   const socket = dgram.createSocket('udp4');
@@ -44,11 +29,11 @@ function server() {
     }
   }
 
-  socket.on('listening', function() {
+  socket.on('listening', () => {
     bench.start();
     onsend();
 
-    setTimeout(function() {
+    setTimeout(() => {
       const bytes = (type === 'send' ? sent : received) * chunk.length;
       const gbits = (bytes * 8) / (1024 * 1024 * 1024);
       bench.end(gbits);
@@ -56,7 +41,7 @@ function server() {
     }, dur * 1000);
   });
 
-  socket.on('message', function() {
+  socket.on('message', () => {
     received++;
   });
 

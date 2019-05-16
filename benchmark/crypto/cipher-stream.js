@@ -9,11 +9,13 @@ const bench = common.createBenchmark(main, {
   api: ['legacy', 'stream']
 });
 
-function main(conf) {
-  var api = conf.api;
+function main({ api, cipher, type, len, writes }) {
+  // Default cipher for tests.
+  if (cipher === '')
+    cipher = 'AES192';
   if (api === 'stream' && /^v0\.[0-8]\./.test(process.version)) {
     console.error('Crypto streams not available until v0.10');
-    // use the legacy, just so that we can compare them.
+    // Use the legacy, just so that we can compare them.
     api = 'legacy';
   }
 
@@ -33,42 +35,42 @@ function main(conf) {
   // alice_secret and bob_secret should be the same
   assert(alice_secret === bob_secret);
 
-  const alice_cipher = crypto.createCipher(conf.cipher, alice_secret);
-  const bob_cipher = crypto.createDecipher(conf.cipher, bob_secret);
+  const alice_cipher = crypto.createCipher(cipher, alice_secret);
+  const bob_cipher = crypto.createDecipher(cipher, bob_secret);
 
   var message;
   var encoding;
-  switch (conf.type) {
+  switch (type) {
     case 'asc':
-      message = 'a'.repeat(conf.len);
+      message = 'a'.repeat(len);
       encoding = 'ascii';
       break;
     case 'utf':
-      message = 'ü'.repeat(conf.len / 2);
+      message = 'ü'.repeat(len / 2);
       encoding = 'utf8';
       break;
     case 'buf':
-      message = Buffer.alloc(conf.len, 'b');
+      message = Buffer.alloc(len, 'b');
       break;
     default:
-      throw new Error(`unknown message type: ${conf.type}`);
+      throw new Error(`unknown message type: ${type}`);
   }
 
   const fn = api === 'stream' ? streamWrite : legacyWrite;
 
-  // write data as fast as possible to alice, and have bob decrypt.
+  // Write data as fast as possible to alice, and have bob decrypt.
   // use old API for comparison to v0.8
   bench.start();
-  fn(alice_cipher, bob_cipher, message, encoding, conf.writes);
+  fn(alice_cipher, bob_cipher, message, encoding, writes);
 }
 
 function streamWrite(alice, bob, message, encoding, writes) {
   var written = 0;
-  bob.on('data', function(c) {
+  bob.on('data', (c) => {
     written += c.length;
   });
 
-  bob.on('end', function() {
+  bob.on('end', () => {
     // Gbits
     const bits = written * 8;
     const gbits = bits / (1024 * 1024 * 1024);

@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 // Flags: --allow-natives-syntax --expose-gc --turbo-inline-array-builtins
-// Flags: --opt --no-always-opt --no-stress-fullcodegen
+// Flags: --opt --no-always-opt
 
-var a = [0, 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,0,0];
+var a = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,0,0];
 var b = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
 var c = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
 
@@ -99,6 +99,27 @@ var c = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
   lazyDeopt();
   lazyDeopt(true);
   lazyDeopt();
+})();
+
+// Escape analyzed array where callback function isn't inlined, forcing a lazy
+// deopt. Check that the result of the callback function is passed correctly
+// to the lazy deopt and that the final result of map is as expected.
+(function() {
+  var lazyDeopt = function(deopt) {
+    var b = [1,2,3];
+    var callback = function(v,i,o) {
+      if (i == 1 && deopt) {
+        %DeoptimizeFunction(lazyDeopt);
+      }
+      return 2 * v;
+    };
+    %NeverOptimizeFunction(callback);
+    return b.map(callback);
+  }
+  assertEquals([2,4,6], lazyDeopt());
+  assertEquals([2,4,6], lazyDeopt());
+  %OptimizeFunctionOnNextCall(lazyDeopt);
+  assertEquals([2,4,6], lazyDeopt(true));
 })();
 
 // Lazy deopt from runtime call from inlined callback function.
@@ -227,6 +248,37 @@ var c = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
   lazyDeopt();
 })();
 
+// Call to a.map is done inside a try-catch block and the callback function
+// being called throws into a deoptimized caller function.
+(function TestThrowIntoDeoptimizedOuter() {
+  var a = [1,2,3,4];
+  var lazyDeopt = function(deopt) {
+    var callback = function(v,i,o) {
+      if (i == 1 && deopt) {
+        %DeoptimizeFunction(lazyDeopt);
+        throw "some exception";
+      }
+      return 2 * v;
+    };
+    %NeverOptimizeFunction(callback);
+    var result = 0;
+    try {
+      result = a.map(callback);
+    } catch (e) {
+      assertEquals("some exception", e)
+      result = "nope";
+    }
+    return result;
+  }
+  assertEquals([2,4,6,8], lazyDeopt(false));
+  assertEquals([2,4,6,8], lazyDeopt(false));
+  assertEquals("nope", lazyDeopt(true));
+  assertEquals("nope", lazyDeopt(true));
+  %OptimizeFunctionOnNextCall(lazyDeopt);
+  assertEquals([2,4,6,8], lazyDeopt(false));
+  assertEquals("nope", lazyDeopt(true));
+})();
+
 (function() {
   var re = /Array\.map/;
   var lazyDeopt = function(deopt) {
@@ -336,6 +388,33 @@ var c = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
       if (i < 5) {
         // First transition the output array to PACKED_DOUBLE_ELEMENTS.
         return v + 0.5;
+      } else {
+        // Then return smi values and make sure they can live in the double
+        // array.
+        return v;
+      }
+    }
+    return c.map(callback);
+  }
+  to_double();
+  to_double();
+  %OptimizeFunctionOnNextCall(to_double);
+  var output = to_double();
+  assertTrue(%HasDoubleElements(output));
+  assertEquals(1.5, output[0]);
+  assertEquals(6, output[5]);
+  assertEquals(975, result);
+  assertOptimized(to_double);
+})();
+
+(function() {
+  var result = 0;
+  var to_fast = function() {
+    var callback = function(v,i,o) {
+      result += v;
+      if (i < 5) {
+        // First transition the output array to PACKED_DOUBLE_ELEMENTS.
+        return v + 0.5;
       } else if (i < 10) {
         // Then return smi values and make sure they can live in the double
         // array.
@@ -347,13 +426,99 @@ var c = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
     }
     return c.map(callback);
   }
-  to_double();
-  to_double();
-  %OptimizeFunctionOnNextCall(to_double);
-  var output = to_double();
+  to_fast();
+  to_fast();
+  %OptimizeFunctionOnNextCall(to_fast);
+  var output = to_fast();
+  %HasObjectElements(output);
   assertEquals(975, result);
   assertEquals("11hello", output[10]);
-  assertOptimized(to_double);
+  assertOptimized(to_fast);
+})();
+
+// TurboFan specializes on number results, ensure the code path is
+// tested.
+(function() {
+  var a = [1, 2, 3];
+  function double_results() {
+    // TurboFan recognizes the result is a double.
+    var callback = v => v + 0.5;
+    return a.map(callback);
+  }
+  double_results();
+  double_results();
+  %OptimizeFunctionOnNextCall(double_results);
+  double_results();
+  assertEquals(1.5, double_results()[0]);
+})();
+
+// TurboFan specializes on non-number results, ensure the code path is
+// tested.
+(function() {
+  var a = [1, 2, 3];
+  function string_results() {
+    // TurboFan recognizes the result is a string.
+    var callback = v => "hello" + v.toString();
+    return a.map(callback);
+  }
+  string_results();
+  string_results();
+  %OptimizeFunctionOnNextCall(string_results);
+  string_results();
+  assertEquals("hello1", string_results()[0]);
+})();
+
+// Verify holes are not visited.
+(() => {
+  const a = [1, 2, , 3, 4];
+  let callback_values = [];
+  function withHoles() {
+    callback_values = [];
+    return a.map(v => {
+      callback_values.push(v);
+      return v;
+    });
+  }
+  withHoles();
+  withHoles();
+  %OptimizeFunctionOnNextCall(withHoles);
+  assertArrayEquals([1, 2, , 3, 4], withHoles());
+  assertArrayEquals([1, 2, 3, 4], callback_values);
+})();
+
+(() => {
+  const a = [1.5, 2.5, , 3.5, 4.5];
+  let callback_values = [];
+  function withHoles() {
+    callback_values = [];
+    return a.map(v => {
+      callback_values.push(v);
+      return v;
+    });
+  }
+  withHoles();
+  withHoles();
+  %OptimizeFunctionOnNextCall(withHoles);
+  assertArrayEquals([1.5, 2.5, , 3.5, 4.5], withHoles());
+  assertArrayEquals([1.5, 2.5, 3.5, 4.5], callback_values);
+})();
+
+// Ensure that we handle side-effects between load and call.
+(() => {
+  function side_effect(a, b) { if (b) a.foo = 3; return a; }
+  %NeverOptimizeFunction(side_effect);
+
+  function unreliable(a, b) {
+    return a.map(x => x * 2, side_effect(a, b));
+  }
+
+  let a = [1, 2, 3];
+  unreliable(a, false);
+  unreliable(a, false);
+  %OptimizeFunctionOnNextCall(unreliable);
+  unreliable(a, false);
+  // Now actually do change the map.
+  unreliable(a, true);
 })();
 
 // Messing with the Array species constructor causes deoptimization.
@@ -377,3 +542,11 @@ var c = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
   assertUnoptimized(species_breakage);
   assertEquals(24, result);
 })();
+
+/////////////////////////////////////////////////////////////////////////
+//
+// Any tests added below species_breakage won't test optimized map calls
+// because the array species constructor change disables inlining of
+// Array.prototype.map across the isolate.
+//
+/////////////////////////////////////////////////////////////////////////

@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef V8_TEST_CCTEST_TEST_API_H_
+#define V8_TEST_CCTEST_TEST_API_H_
+
 #include "src/v8.h"
 
 #include "src/api.h"
@@ -12,7 +15,7 @@
 template <typename T>
 static void CheckReturnValue(const T& t, i::Address callback) {
   v8::ReturnValue<v8::Value> rv = t.GetReturnValue();
-  i::Object** o = *reinterpret_cast<i::Object***>(&rv);
+  i::FullObjectSlot o(*reinterpret_cast<i::Address*>(&rv));
   CHECK_EQ(CcTest::isolate(), t.GetIsolate());
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(t.GetIsolate());
   CHECK_EQ(t.GetIsolate(), rv.GetIsolate());
@@ -38,3 +41,5 @@ static void CheckReturnValue(const T& t, i::Address callback) {
     CHECK_EQ(callback, isolate->external_callback_scope()->callback());
   }
 }
+
+#endif  // V8_TEST_CCTEST_TEST_API_H_

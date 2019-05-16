@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --no-stress-fullcodegen
 let {session, contextGroup, Protocol} = InspectorTest.start('Tests side-effect-free evaluation');
 
 contextGroup.addScript(`
@@ -11,6 +10,7 @@ function testFunction()
   var o = 0;
   function f() { return 1; }
   function g() { o = 2; return o; }
+  f,g;
   debugger;
 }
 //# sourceURL=foo.js`);

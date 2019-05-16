@@ -17,11 +17,10 @@ const bench = common.createBenchmark(main, {
   method: ['write', 'end']
 });
 
-function main(conf) {
+function main({ len, type, method, c }) {
   const http = require('http');
   var chunk;
-  const len = conf.len;
-  switch (conf.type) {
+  switch (type) {
     case 'buf':
       chunk = Buffer.alloc(len, 'x');
       break;
@@ -42,16 +41,16 @@ function main(conf) {
     res.end(chunk);
   }
 
-  const method = conf.method === 'write' ? write : end;
+  const fn = method === 'write' ? write : end;
 
-  const server = http.createServer(function(req, res) {
-    method(res);
+  const server = http.createServer((req, res) => {
+    fn(res);
   });
 
-  server.listen(common.PORT, function() {
+  server.listen(common.PORT, () => {
     bench.http({
-      connections: conf.c
-    }, function() {
+      connections: c
+    }, () => {
       server.close();
     });
   });

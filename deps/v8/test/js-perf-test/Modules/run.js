@@ -5,7 +5,6 @@
 
 load('../base.js');
 
-
 new BenchmarkSuite('BasicExport', [100], [
   new Benchmark('BasicExport', false, false, 0, BasicExport)
 ]);
@@ -18,28 +17,27 @@ new BenchmarkSuite('BasicNamespace', [100], [
   new Benchmark('BasicNamespace', false, false, 0, BasicNamespace)
 ]);
 
-
-const iterations = 3000000;
+const iterations = 10000;
 
 
 function BasicExport() {
   let success = false;
-  import("basic-export.js").then(_ => success = true);
-  %RunMicrotasks();
+  import("basic-export.js").then(m => { m.bench(); success = true; });
+  %PerformMicrotaskCheckpoint();
   if (!success) throw new Error(666);
 }
 
 function BasicImport() {
   let success = false;
-  import("basic-import.js").then(_ => success = true);
-  %RunMicrotasks();
+  import("basic-import.js").then(m => { m.bench(); success = true; });
+  %PerformMicrotaskCheckpoint();
   if (!success) throw new Error(666);
 }
 
 function BasicNamespace() {
   let success = false;
-  import("basic-namespace.js").then(_ => success = true);
-  %RunMicrotasks();
+  import("basic-namespace.js").then(m => { m.bench(); success = true; });
+  %PerformMicrotaskCheckpoint();
   if (!success) throw new Error(666);
 }
 

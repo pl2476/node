@@ -26,23 +26,22 @@ const W = require('_stream_writable');
 const D = require('_stream_duplex');
 const assert = require('assert');
 
-const util = require('util');
-util.inherits(TestWriter, W);
+class TestWriter extends W {
+  constructor(opts) {
+    super(opts);
+    this.buffer = [];
+    this.written = 0;
+  }
 
-function TestWriter() {
-  W.apply(this, arguments);
-  this.buffer = [];
-  this.written = 0;
+  _write(chunk, encoding, cb) {
+    // Simulate a small unpredictable latency
+    setTimeout(() => {
+      this.buffer.push(chunk.toString());
+      this.written += chunk.length;
+      cb();
+    }, Math.floor(Math.random() * 10));
+  }
 }
-
-TestWriter.prototype._write = function(chunk, encoding, cb) {
-  // simulate a small unpredictable latency
-  setTimeout(function() {
-    this.buffer.push(chunk.toString());
-    this.written += chunk.length;
-    cb();
-  }.bind(this), Math.floor(Math.random() * 10));
-};
 
 const chunks = new Array(50);
 for (let i = 0; i < chunks.length; i++) {
@@ -56,7 +55,8 @@ for (let i = 0; i < chunks.length; i++) {
   });
 
   tw.on('finish', common.mustCall(function() {
-    assert.deepStrictEqual(tw.buffer, chunks, 'got chunks in the right order');
+    // Got chunks in the right order
+    assert.deepStrictEqual(tw.buffer, chunks);
   }));
 
   chunks.forEach(function(chunk) {
@@ -73,7 +73,8 @@ for (let i = 0; i < chunks.length; i++) {
   });
 
   tw.on('finish', common.mustCall(function() {
-    assert.deepStrictEqual(tw.buffer, chunks, 'got chunks in the right order');
+    //  Got chunks in the right order
+    assert.deepStrictEqual(tw.buffer, chunks);
   }));
 
   let i = 0;
@@ -95,7 +96,8 @@ for (let i = 0; i < chunks.length; i++) {
   let drains = 0;
 
   tw.on('finish', common.mustCall(function() {
-    assert.deepStrictEqual(tw.buffer, chunks, 'got chunks in the right order');
+    // Got chunks in the right order
+    assert.deepStrictEqual(tw.buffer, chunks);
     assert.strictEqual(drains, 17);
   }));
 
@@ -111,7 +113,7 @@ for (let i = 0; i < chunks.length; i++) {
     } while (ret !== false && i < chunks.length);
 
     if (i < chunks.length) {
-      assert(tw._writableState.length >= 50);
+      assert(tw.writableLength >= 50);
       tw.once('drain', W);
     } else {
       tw.end();
@@ -140,7 +142,8 @@ for (let i = 0; i < chunks.length; i++) {
       undefined ];
 
   tw.on('finish', function() {
-    assert.deepStrictEqual(tw.buffer, chunks, 'got the expected chunks');
+    // Got the expected chunks
+    assert.deepStrictEqual(tw.buffer, chunks);
   });
 
   chunks.forEach(function(chunk, i) {
@@ -178,7 +181,8 @@ for (let i = 0; i < chunks.length; i++) {
       undefined ];
 
   tw.on('finish', function() {
-    assert.deepStrictEqual(tw.buffer, chunks, 'got the expected chunks');
+    // Got the expected chunks
+    assert.deepStrictEqual(tw.buffer, chunks);
   });
 
   chunks.forEach(function(chunk, i) {
@@ -206,9 +210,10 @@ for (let i = 0; i < chunks.length; i++) {
 
   tw.on('finish', common.mustCall(function() {
     process.nextTick(common.mustCall(function() {
-      assert.deepStrictEqual(tw.buffer, chunks,
-                             'got chunks in the right order');
-      assert.deepStrictEqual(callbacks._called, chunks, 'called all callbacks');
+      // Got chunks in the right order
+      assert.deepStrictEqual(tw.buffer, chunks);
+      // Called all callbacks
+      assert.deepStrictEqual(callbacks._called, chunks);
     }));
   }));
 
@@ -317,13 +322,14 @@ for (let i = 0; i < chunks.length; i++) {
     assert.strictEqual(this.writing, undefined);
     wrote = true;
     this.writing = true;
-    setTimeout(function() {
+    setTimeout(() => {
       this.writing = false;
       cb();
     }, 1);
   };
   w.on('finish', common.mustCall(function() {
     assert.strictEqual(wrote, true);
+    assert.strictEqual(this.writing, false);
   }));
   w.write(Buffer.alloc(0));
   w.end();

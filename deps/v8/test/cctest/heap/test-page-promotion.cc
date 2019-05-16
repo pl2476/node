@@ -2,12 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/factory.h"
 #include "src/heap/array-buffer-tracker.h"
+#include "src/heap/factory.h"
 #include "src/heap/spaces-inl.h"
 #include "src/isolate.h"
-// FIXME(mstarzinger, marja): This is weird, but required because of the missing
-// (disallowed) include: src/factory.h -> src/objects-inl.h
 #include "src/objects-inl.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/heap/heap-tester.h"
@@ -15,6 +13,10 @@
 
 namespace v8 {
 namespace internal {
+namespace heap {
+
+// Tests don't work when --optimize-for-size is set.
+#ifndef V8_LITE_MODE
 
 namespace {
 
@@ -26,6 +28,8 @@ v8::Isolate* NewIsolateForPagePromotion(int min_semi_space_size = 8,
   FLAG_parallel_compaction = false;
   FLAG_page_promotion = true;
   FLAG_page_promotion_threshold = 0;
+  // Parallel scavenge introduces too much fragmentation.
+  FLAG_parallel_scavenge = false;
   FLAG_min_semi_space_size = min_semi_space_size;
   // We cannot optimize for size as we require a new space with more than one
   // page.
@@ -41,7 +45,8 @@ v8::Isolate* NewIsolateForPagePromotion(int min_semi_space_size = 8,
 
 Page* FindLastPageInNewSpace(std::vector<Handle<FixedArray>>& handles) {
   for (auto rit = handles.rbegin(); rit != handles.rend(); ++rit) {
-    Page* candidate = Page::FromAddress((*rit)->address());
+    // One deref gets the Handle, the second deref gets the FixedArray.
+    Page* candidate = Page::FromHeapObject(**rit);
     if (candidate->InNewSpace()) return candidate;
   }
   return nullptr;
@@ -52,6 +57,7 @@ Page* FindLastPageInNewSpace(std::vector<Handle<FixedArray>>& handles) {
 UNINITIALIZED_TEST(PagePromotion_NewToOld) {
   if (!i::FLAG_incremental_marking) return;
   if (!i::FLAG_page_promotion) return;
+  ManualGCScope manual_gc_scope;
 
   v8::Isolate* isolate = NewIsolateForPagePromotion();
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
@@ -60,6 +66,11 @@ UNINITIALIZED_TEST(PagePromotion_NewToOld) {
     v8::HandleScope handle_scope(isolate);
     v8::Context::New(isolate)->Enter();
     Heap* heap = i_isolate->heap();
+
+    // Ensure that the new space is empty so that the page to be promoted
+    // does not contain the age mark.
+    heap->CollectGarbage(NEW_SPACE, i::GarbageCollectionReason::kTesting);
+    heap->CollectGarbage(NEW_SPACE, i::GarbageCollectionReason::kTesting);
 
     std::vector<Handle<FixedArray>> handles;
     heap::SimulateFullSpace(heap->new_space(), &handles);
@@ -71,9 +82,11 @@ UNINITIALIZED_TEST(PagePromotion_NewToOld) {
     // To perform a sanity check on live bytes we need to mark the heap.
     heap::SimulateIncrementalMarking(heap, true);
     // Sanity check that the page meets the requirements for promotion.
-    const int threshold_bytes =
-        FLAG_page_promotion_threshold * Page::kAllocatableMemory / 100;
-    CHECK_GE(MarkingState::Internal(to_be_promoted_page).live_bytes(),
+    const int threshold_bytes = static_cast<int>(
+        FLAG_page_promotion_threshold *
+        MemoryChunkLayout::AllocatableMemoryInDataPage() / 100);
+    CHECK_GE(heap->incremental_marking()->marking_state()->live_bytes(
+                 to_be_promoted_page),
              threshold_bytes);
 
     // Actual checks: The page is in new space first, but is moved to old space
@@ -104,7 +117,7 @@ UNINITIALIZED_TEST(PagePromotion_NewToNew) {
     // Last object in handles should definitely be on a page that does not
     // contain the age mark, thus qualifying for moving.
     Handle<FixedArray> last_object = handles.back();
-    Page* to_be_promoted_page = Page::FromAddress(last_object->address());
+    Page* to_be_promoted_page = Page::FromHeapObject(*last_object);
     CHECK(!to_be_promoted_page->Contains(heap->new_space()->age_mark()));
     CHECK(to_be_promoted_page->Contains(last_object->address()));
     CHECK(heap->new_space()->ToSpaceContainsSlow(last_object->address()));
@@ -141,7 +154,7 @@ UNINITIALIZED_TEST(PagePromotion_NewToNewJSArrayBuffer) {
     // First object in handles should be on the same page as the allocated
     // JSArrayBuffer.
     Handle<FixedArray> first_object = handles.front();
-    Page* to_be_promoted_page = Page::FromAddress(first_object->address());
+    Page* to_be_promoted_page = Page::FromHeapObject(*first_object);
     CHECK(!to_be_promoted_page->Contains(heap->new_space()->age_mark()));
     CHECK(to_be_promoted_page->Contains(first_object->address()));
     CHECK(to_be_promoted_page->Contains(buffer->address()));
@@ -150,6 +163,49 @@ UNINITIALIZED_TEST(PagePromotion_NewToNewJSArrayBuffer) {
     heap::GcAndSweep(heap, OLD_SPACE);
     CHECK(heap->new_space()->ToSpaceContainsSlow(first_object->address()));
     CHECK(heap->new_space()->ToSpaceContainsSlow(buffer->address()));
+    CHECK(to_be_promoted_page->Contains(first_object->address()));
+    CHECK(to_be_promoted_page->Contains(buffer->address()));
+    CHECK(ArrayBufferTracker::IsTracked(*buffer));
+  }
+  isolate->Dispose();
+}
+
+UNINITIALIZED_TEST(PagePromotion_NewToOldJSArrayBuffer) {
+  if (!i::FLAG_page_promotion) return;
+
+  // Test makes sure JSArrayBuffer backing stores are still tracked after
+  // new-to-old promotion.
+  v8::Isolate* isolate = NewIsolateForPagePromotion();
+  Isolate* i_isolate = reinterpret_cast<Isolate*>(isolate);
+  {
+    v8::Isolate::Scope isolate_scope(isolate);
+    v8::HandleScope handle_scope(isolate);
+    v8::Context::New(isolate)->Enter();
+    Heap* heap = i_isolate->heap();
+
+    // Fill the current page which potentially contains the age mark.
+    heap::FillCurrentPage(heap->new_space());
+    // Allocate a buffer we would like to check against.
+    Handle<JSArrayBuffer> buffer =
+        i_isolate->factory()->NewJSArrayBuffer(SharedFlag::kNotShared);
+    CHECK(JSArrayBuffer::SetupAllocatingData(buffer, i_isolate, 100));
+    std::vector<Handle<FixedArray>> handles;
+    // Simulate a full space, filling the interesting page with live objects.
+    heap::SimulateFullSpace(heap->new_space(), &handles);
+    CHECK_GT(handles.size(), 0u);
+    // First object in handles should be on the same page as the allocated
+    // JSArrayBuffer.
+    Handle<FixedArray> first_object = handles.front();
+    Page* to_be_promoted_page = Page::FromHeapObject(*first_object);
+    CHECK(!to_be_promoted_page->Contains(heap->new_space()->age_mark()));
+    CHECK(to_be_promoted_page->Contains(first_object->address()));
+    CHECK(to_be_promoted_page->Contains(buffer->address()));
+    CHECK(heap->new_space()->ToSpaceContainsSlow(first_object->address()));
+    CHECK(heap->new_space()->ToSpaceContainsSlow(buffer->address()));
+    heap::GcAndSweep(heap, OLD_SPACE);
+    heap::GcAndSweep(heap, OLD_SPACE);
+    CHECK(heap->old_space()->ContainsSlow(first_object->address()));
+    CHECK(heap->old_space()->ContainsSlow(buffer->address()));
     CHECK(to_be_promoted_page->Contains(first_object->address()));
     CHECK(to_be_promoted_page->Contains(buffer->address()));
     CHECK(ArrayBufferTracker::IsTracked(*buffer));
@@ -177,7 +233,7 @@ UNINITIALIZED_HEAP_TEST(Regress658718) {
       // Last object in handles should definitely be on a page that does not
       // contain the age mark, thus qualifying for moving.
       Handle<FixedArray> last_object = handles.back();
-      Page* to_be_promoted_page = Page::FromAddress(last_object->address());
+      Page* to_be_promoted_page = Page::FromHeapObject(*last_object);
       CHECK(!to_be_promoted_page->Contains(heap->new_space()->age_mark()));
       CHECK(to_be_promoted_page->Contains(last_object->address()));
       CHECK(heap->new_space()->ToSpaceContainsSlow(last_object->address()));
@@ -187,12 +243,16 @@ UNINITIALIZED_HEAP_TEST(Regress658718) {
     }
     heap->CollectGarbage(NEW_SPACE, i::GarbageCollectionReason::kTesting);
     heap->new_space()->Shrink();
-    heap->memory_allocator()->unmapper()->WaitUntilCompleted();
-    heap->mark_compact_collector()->sweeper().StartSweeperTasks();
+    heap->memory_allocator()->unmapper()->EnsureUnmappingCompleted();
+    heap->delay_sweeper_tasks_for_testing_ = false;
+    heap->mark_compact_collector()->sweeper()->StartSweeperTasks();
     heap->mark_compact_collector()->EnsureSweepingCompleted();
   }
   isolate->Dispose();
 }
 
+#endif  // V8_LITE_MODE
+
+}  // namespace heap
 }  // namespace internal
 }  // namespace v8

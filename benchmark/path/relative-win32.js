@@ -1,6 +1,6 @@
 'use strict';
 const common = require('../common.js');
-const path = require('path');
+const { win32 } = require('path');
 
 const bench = common.createBenchmark(main, {
   paths: [
@@ -8,30 +8,25 @@ const bench = common.createBenchmark(main, {
     ['C:\\', 'D:\\'].join('|'),
     ['C:\\foo\\bar\\baz', 'C:\\foo\\bar\\baz'].join('|'),
     ['C:\\foo\\BAR\\BAZ', 'C:\\foo\\bar\\baz'].join('|'),
-    ['C:\\foo\\bar\\baz\\quux', 'C:\\'].join('|')
+    ['C:\\foo\\bar\\baz\\quux', 'C:\\'].join('|'),
   ],
-  n: [1e6]
+  n: [1e5]
 });
 
-function main(conf) {
-  const n = +conf.n;
-  const p = path.win32;
-  var from = String(conf.paths);
+function main({ n, paths }) {
   var to = '';
-  const delimIdx = from.indexOf('|');
+  const delimIdx = paths.indexOf('|');
   if (delimIdx > -1) {
-    to = from.slice(delimIdx + 1);
-    from = from.slice(0, delimIdx);
-  }
-
-  // Warmup
-  for (var i = 0; i < n; i++) {
-    p.relative(from, to);
+    to = paths.slice(delimIdx + 1);
+    paths = paths.slice(0, delimIdx);
   }
 
   bench.start();
-  for (i = 0; i < n; i++) {
-    p.relative(from, to);
+  for (let i = 0; i < n; i++) {
+    if (i % 3 === 0)
+      win32.relative(`${paths}${i}`, `${to}${i}`);
+    else
+      win32.relative(paths, to);
   }
   bench.end(n);
 }

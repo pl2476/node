@@ -1,6 +1,7 @@
 'use strict';
 
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 if (!common.hasCrypto)
   common.skip('missing crypto');
 
@@ -9,11 +10,9 @@ const https = require('https');
 
 const agent = new https.Agent();
 
-const fs = require('fs');
-
 const options = {
-  key: fs.readFileSync(`${common.fixturesDir}/keys/agent1-key.pem`),
-  cert: fs.readFileSync(`${common.fixturesDir}/keys/agent1-cert.pem`),
+  key: fixtures.readKey('agent1-key.pem'),
+  cert: fixtures.readKey('agent1-cert.pem'),
 };
 
 const expectedHeader = /^HTTP\/1\.1 200 OK/;
@@ -52,10 +51,7 @@ function createServer() {
       port: port,
       host: host,
       rejectUnauthorized: false,
-      _agentKey: agent.getName({
-        port: port,
-        host: host,
-      }),
+      _agentKey: agent.getName({ port, host })
     };
 
     const socket = agent.createConnection(options);
@@ -63,7 +59,7 @@ function createServer() {
   }));
 }
 
-// use port and option connect
+// Use port and option connect
 {
   const server = createServer();
   server.listen(0, common.mustCall(() => {
@@ -71,17 +67,14 @@ function createServer() {
     const host = 'localhost';
     const options = {
       rejectUnauthorized: false,
-      _agentKey: agent.getName({
-        port: port,
-        host: host,
-      }),
+      _agentKey: agent.getName({ port, host })
     };
     const socket = agent.createConnection(port, options);
     checkRequest(socket, server);
   }));
 }
 
-// use port and host and option connect
+// Use port and host and option connect
 {
   const server = createServer();
   server.listen(0, common.mustCall(() => {
@@ -89,17 +82,14 @@ function createServer() {
     const host = 'localhost';
     const options = {
       rejectUnauthorized: false,
-      _agentKey: agent.getName({
-        port: port,
-        host: host,
-      }),
+      _agentKey: agent.getName({ port, host })
     };
     const socket = agent.createConnection(port, host, options);
     checkRequest(socket, server);
   }));
 }
 
-// use port and host and option does not have agentKey
+// Use port and host and option does not have agentKey
 {
   const server = createServer();
   server.listen(0, common.mustCall(() => {
@@ -113,7 +103,7 @@ function createServer() {
   }));
 }
 
-// options is null
+// `options` is null
 {
   const server = createServer();
   server.listen(0, common.mustCall(() => {
@@ -128,7 +118,7 @@ function createServer() {
   }));
 }
 
-// options is undefined
+// `options` is undefined
 {
   const server = createServer();
   server.listen(0, common.mustCall(() => {

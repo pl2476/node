@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "include/v8.h"
-#include "src/compiler-dispatcher/compiler-dispatcher-job.h"
 #include "src/parsing/parse-info.h"
 
 namespace v8 {
@@ -40,24 +39,14 @@ class ScriptResource : public v8::String::ExternalOneByteStringResource {
   DISALLOW_COPY_AND_ASSIGN(ScriptResource);
 };
 
-class FinishCallback : public CompileJobFinishCallback {
- public:
-  void ParseFinished(std::unique_ptr<ParseInfo> result) override {
-    result_ = std::move(result);
-  }
-  ParseInfo* result() const { return result_.get(); }
-
- private:
-  std::unique_ptr<ParseInfo> result_;
-};
-
-Handle<Object> RunJS(v8::Isolate* isolate, const char* script);
 Handle<String> CreateSource(
     Isolate* isolate,
     v8::String::ExternalOneByteStringResource* maybe_resource);
 Handle<SharedFunctionInfo> CreateSharedFunctionInfo(
     Isolate* isolate,
     v8::String::ExternalOneByteStringResource* maybe_resource);
+std::unique_ptr<ParseInfo> OuterParseInfoForShared(
+    Isolate* isolate, Handle<SharedFunctionInfo> shared);
 
 }  // namespace test
 }  // namespace internal

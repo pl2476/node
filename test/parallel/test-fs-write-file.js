@@ -25,9 +25,10 @@ const assert = require('assert');
 const fs = require('fs');
 const join = require('path').join;
 
-common.refreshTmpDir();
+const tmpdir = require('../common/tmpdir');
+tmpdir.refresh();
 
-const filename = join(common.tmpDir, 'test.txt');
+const filename = join(tmpdir.path, 'test.txt');
 
 const n = 220;
 const s = '南越国是前203年至前111年存在于岭南地区的一个国家，国都位于番禺，疆域包括今天中国的广东、' +
@@ -47,8 +48,8 @@ fs.writeFile(filename, s, common.mustCall(function(e) {
   }));
 }));
 
-// test that writeFile accepts buffers
-const filename2 = join(common.tmpDir, 'test2.txt');
+// Test that writeFile accepts buffers.
+const filename2 = join(tmpdir.path, 'test2.txt');
 const buf = Buffer.from(s, 'utf8');
 
 fs.writeFile(filename2, buf, common.mustCall(function(e) {
@@ -61,14 +62,14 @@ fs.writeFile(filename2, buf, common.mustCall(function(e) {
   }));
 }));
 
-// test that writeFile accepts numbers.
-const filename3 = join(common.tmpDir, 'test3.txt');
+// Test that writeFile accepts numbers.
+const filename3 = join(tmpdir.path, 'test3.txt');
 
 const m = 0o600;
 fs.writeFile(filename3, n, { mode: m }, common.mustCall(function(e) {
   assert.ifError(e);
 
-  // windows permissions aren't unix
+  // Windows permissions aren't Unix.
   if (!common.isWindows) {
     const st = fs.statSync(filename3);
     assert.strictEqual(st.mode & 0o700, m);
@@ -81,8 +82,8 @@ fs.writeFile(filename3, n, { mode: m }, common.mustCall(function(e) {
   }));
 }));
 
-// test that writeFile accepts file descriptors
-const filename4 = join(common.tmpDir, 'test4.txt');
+// Test that writeFile accepts file descriptors.
+const filename4 = join(tmpdir.path, 'test4.txt');
 
 fs.open(filename4, 'w+', common.mustCall(function(e, fd) {
   assert.ifError(e);

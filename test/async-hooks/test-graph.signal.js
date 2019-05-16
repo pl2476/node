@@ -1,18 +1,19 @@
 'use strict';
 
 const common = require('../common');
-if (common.isWindows) {
+if (common.isWindows)
   common.skip('no signals on Windows');
-  return;
-}
+if (!common.isMainThread)
+  common.skip('No signal handling available in Workers');
 
 const initHooks = require('./init-hooks');
 const verifyGraph = require('./verify-graph');
-const exec = require('child_process').exec;
+const { exec } = require('child_process');
 
 const hooks = initHooks();
 
 hooks.enable();
+const interval = setInterval(() => {}, 9999); // Keep event loop open
 process.on('SIGUSR2', common.mustCall(onsigusr2, 2));
 
 let count = 0;
@@ -22,10 +23,10 @@ function onsigusr2() {
   count++;
 
   if (count === 1) {
-    // trigger same signal handler again
+    // Trigger same signal handler again
     exec(`kill -USR2 ${process.pid}`);
   } else {
-    // install another signal handler
+    // Install another signal handler
     process.removeAllListeners('SIGUSR2');
     process.on('SIGUSR2', common.mustCall(onsigusr2Again));
 
@@ -33,7 +34,9 @@ function onsigusr2() {
   }
 }
 
-function onsigusr2Again() {}
+function onsigusr2Again() {
+  clearInterval(interval); // Let the event loop close
+}
 
 process.on('exit', onexit);
 

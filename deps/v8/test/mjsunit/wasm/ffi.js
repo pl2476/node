@@ -4,7 +4,6 @@
 
 // Flags: --expose-wasm --allow-natives-syntax
 
-load("test/mjsunit/wasm/wasm-constants.js");
 load("test/mjsunit/wasm/wasm-module-builder.js");
 
 function testCallFFI(func, check) {
@@ -68,9 +67,8 @@ print("Bind function");
 var bind_sub = FOREIGN_SUB.bind();
 testCallFFI(bind_sub, check_FOREIGN_SUB);
 
-var main_for_constructor_test;
-print("Constructor");
 (function testCallConstructor() {
+  print(arguments.callee.name);
   class C {}
   var builder = new WasmModuleBuilder();
 
@@ -84,13 +82,30 @@ print("Constructor");
     ])        // --
     .exportFunc();
 
-  main_for_constructor_test = builder.instantiate({"": {func: C}}).exports.main;
+  let main_for_constructor_test = builder.instantiate({"": {func: C}}).exports.main;
 
-  assertThrows("main_for_constructor_test(12, 43)", TypeError);
+  assertThrows(_ => main_for_constructor_test(12, 43), TypeError);
 }) ();
 
-print("Native function");
+(function testCallConstructorWithSuperClass() {
+  print(arguments.callee.name);
+  let builder = new WasmModuleBuilder();
+  let sig_index = builder.addType(kSig_v_v);
+  let func_index = builder.addImport('', 'func', sig_index);
+  builder.addExport('exp', func_index);
+
+  class B {}
+  class C extends B {
+    constructor() {
+      super();
+    }
+  };
+  let exports = builder.instantiate({'': {func: C}}).exports;
+  assertThrows(_ => exports.exp(), TypeError);
+})();
+
 (function test_ffi_call_to_native() {
+  print(arguments.callee.name);
 
   var builder = new WasmModuleBuilder();
 
@@ -384,4 +399,19 @@ testCallBinopVoid(kWasmF64);
   main();
   main();
   assertEquals(0, num_valueOf);
+})();
+
+(function ImportWithCustomGetter() {
+  print(arguments.callee.name);
+  const builder = new WasmModuleBuilder();
+  builder.addImport("import", "func", kSig_v_v);
+
+  const ffi = {};
+  Object.defineProperty(ffi, 'import', {
+    get: _ => {
+      return {func: () => null };
+    }
+  });
+
+  builder.instantiate(ffi);
 })();

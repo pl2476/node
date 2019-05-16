@@ -28,14 +28,22 @@
 // Load implementations from <project root>/tools.
 // Files: tools/splaytree.js tools/codemap.js tools/csvparser.js
 // Files: tools/consarray.js tools/profile.js tools/profile_view.js
-// Files: tools/logreader.js tools/tickprocessor.js
+// Files: tools/logreader.js tools/arguments.js tools/tickprocessor.js
+// Resources: test/mjsunit/tools/tickprocessor-test-func-info.log
+// Resources: test/mjsunit/tools/tickprocessor-test.default
+// Resources: test/mjsunit/tools/tickprocessor-test.func-info
+// Resources: test/mjsunit/tools/tickprocessor-test.gc-state
+// Resources: test/mjsunit/tools/tickprocessor-test.ignore-unknown
+// Resources: test/mjsunit/tools/tickprocessor-test.log
+// Resources: test/mjsunit/tools/tickprocessor-test.only-summary
+// Resources: test/mjsunit/tools/tickprocessor-test.separate-ic
 // Env: TEST_FILE_NAME
 
 
 (function testArgumentsProcessor() {
   var p_default = new ArgumentsProcessor([]);
   assertTrue(p_default.parse());
-  assertEquals(ArgumentsProcessor.DEFAULTS, p_default.result());
+  assertEquals(p_default.getDefaultResults(), p_default.result());
 
   var p_logFile = new ArgumentsProcessor(['logfile.log']);
   assertTrue(p_logFile.parse());

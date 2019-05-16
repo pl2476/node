@@ -1,22 +1,27 @@
 'use strict';
 const common = require('../common.js');
-const path = require('path');
+const { win32 } = require('path');
 
 const bench = common.createBenchmark(main, {
   paths: [
-    ['C:\\foo', 'bar', '', 'baz\\asdf', 'quux', '..'].join('|')
+    ['C:\\foo', 'bar', '', 'baz\\asdf', 'quux', '..'].join('|'),
   ],
-  n: [1e6]
+  n: [1e5]
 });
 
-function main(conf) {
-  const n = +conf.n;
-  const p = path.win32;
-  const args = String(conf.paths).split('|');
+function main({ n, paths }) {
+  const args = paths.split('|');
+  const copy = [...args];
+  const orig = copy[1];
 
   bench.start();
   for (var i = 0; i < n; i++) {
-    p.join.apply(null, args);
+    if (i % 3 === 0) {
+      copy[1] = `${orig}${i}`;
+      win32.join(...copy);
+    } else {
+      win32.join(...args);
+    }
   }
   bench.end(n);
 }

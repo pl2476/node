@@ -33,27 +33,32 @@ InspectorTest.startDumpingProtocolMessages = function() {
 }
 
 InspectorTest.logMessage = function(originalMessage) {
-  var message = JSON.parse(JSON.stringify(originalMessage));
+  const nonStableFields = new Set([
+    'objectId', 'scriptId', 'exceptionId', 'timestamp', 'executionContextId',
+    'callFrameId', 'breakpointId', 'bindRemoteObjectFunctionId',
+    'formatterObjectId', 'debuggerId', 'bodyGetterId'
+  ]);
+  const message = JSON.parse(JSON.stringify(originalMessage, replacer.bind(null, Symbol(), nonStableFields)));
   if (message.id)
-    message.id = "<messageId>";
-
-  const nonStableFields = new Set(["objectId", "scriptId", "exceptionId", "timestamp",
-    "executionContextId", "callFrameId", "breakpointId", "bindRemoteObjectFunctionId", "formatterObjectId" ]);
-  var objects = [ message ];
-  while (objects.length) {
-    var object = objects.shift();
-    for (var key in object) {
-      if (nonStableFields.has(key))
-        object[key] = `<${key}>`;
-      else if (typeof object[key] === "string" && object[key].match(/\d+:\d+:\d+:debug/))
-        object[key] = object[key].replace(/\d+/, '<scriptId>');
-      else if (typeof object[key] === "object")
-        objects.push(object[key]);
-    }
-  }
+    message.id = '<messageId>';
 
   InspectorTest.logObject(message);
   return originalMessage;
+
+  function replacer(stableIdSymbol, nonStableFields, name, val) {
+    if (nonStableFields.has(name))
+      return `<${name}>`;
+    if (name === 'internalProperties') {
+      const stableId = val.find(prop => prop.name === '[[StableObjectId]]');
+      if (stableId)
+        stableId.value[stableIdSymbol] = true;
+    }
+    if (name === 'parentId')
+      return { id: '<id>' };
+    if (val && val[stableIdSymbol])
+      return '<StablectObjectId>';
+    return val;
+  }
 }
 
 InspectorTest.logObject = function(object, title) {
@@ -117,6 +122,12 @@ InspectorTest.ContextGroup = class {
     utils.compileAndRunWithOrigin(this.id, string, url || '', lineOffset || 0, columnOffset || 0, false);
   }
 
+  addInlineScript(string, url) {
+    const match = (new Error().stack).split('\n')[2].match(/([0-9]+):([0-9]+)/);
+    this.addScript(
+        string, match[1] * 1, match[1] * 1 + '.addInlineScript('.length, url);
+  }
+
   addModule(string, url, lineOffset, columnOffset) {
     utils.compileAndRunWithOrigin(this.id, string, url, lineOffset || 0, columnOffset || 0, true);
   }
@@ -129,20 +140,37 @@ InspectorTest.ContextGroup = class {
     return new InspectorTest.Session(this);
   }
 
-  setupInjectedScriptEnvironment(debug) {
+  reset() {
+    utils.resetContextGroup(this.id);
+  }
+
+  setupInjectedScriptEnvironment(session) {
     let scriptSource = '';
-    // First define all getters on Object.prototype.
-    let injectedScriptSource = utils.read('src/inspector/injected-script-source.js');
-    let getterRegex = /\.[a-zA-Z0-9]+/g;
-    let match;
-    let getters = new Set();
-    while (match = getterRegex.exec(injectedScriptSource)) {
-      getters.add(match[0].substr(1));
-    }
+    let getters = ["length","internalConstructorName","subtype","getProperty",
+        "objectHasOwnProperty","nullifyPrototype","primitiveTypes",
+        "closureTypes","prototype","all","RemoteObject","bind",
+        "PropertyDescriptor","object","get","set","value","configurable",
+        "enumerable","symbol","getPrototypeOf","nativeAccessorDescriptor",
+        "isBuiltin","hasGetter","hasSetter","getOwnPropertyDescriptor",
+        "description","formatAccessorsAsProperties","isOwn","name",
+        "typedArrayProperties","keys","getOwnPropertyNames",
+        "getOwnPropertySymbols","isPrimitiveValue","com","toLowerCase",
+        "ELEMENT","trim","replace","DOCUMENT","size","byteLength","toString",
+        "stack","substr","message","indexOf","key","type","unserializableValue",
+        "objectId","className","preview","proxyTargetValue","customPreview",
+        "CustomPreview","resolve","then","console","error","header","hasBody",
+        "stringify","ObjectPreview","ObjectPreviewType","properties",
+        "ObjectPreviewSubtype","getInternalProperties","wasThrown","indexes",
+        "overflow","valuePreview","entries"];
     scriptSource += `(function installSettersAndGetters() {
         let defineProperty = Object.defineProperty;
-        let ObjectPrototype = Object.prototype;\n`;
-    scriptSource += Array.from(getters).map(getter => `
+        let ObjectPrototype = Object.prototype;
+        let ArrayPrototype = Array.prototype;
+        defineProperty(ArrayPrototype, 0, {
+          set() { debugger; throw 42; }, get() { debugger; throw 42; },
+          __proto__: null
+        });`,
+        scriptSource += getters.map(getter => `
         defineProperty(ObjectPrototype, '${getter}', {
           set() { debugger; throw 42; }, get() { debugger; throw 42; },
           __proto__: null
@@ -150,13 +178,10 @@ InspectorTest.ContextGroup = class {
         `).join('\n') + '})();';
     this.addScript(scriptSource);
 
-    if (debug) {
+    if (session) {
       InspectorTest.log('WARNING: setupInjectedScriptEnvironment with debug flag for debugging only and should not be landed.');
-      InspectorTest.log('WARNING: run test with --expose-inspector-scripts flag to get more details.');
-      InspectorTest.log('WARNING: you can additionally comment rjsmin in xxd.py to get unminified injected-script-source.js.');
-      var session = InspectorTest._sessions.next().vale;
       session.setupScriptMap();
-      sesison.Protocol.Debugger.enable();
+      session.Protocol.Debugger.enable();
       session.Protocol.Debugger.onPaused(message => {
         let callFrames = message.params.callFrames;
         session.logSourceLocations(callFrames.map(frame => frame.location));
@@ -206,21 +231,22 @@ InspectorTest.Session = class {
   logCallFrames(callFrames) {
     for (var frame of callFrames) {
       var functionName = frame.functionName || '(anonymous)';
-      var url = frame.url ? frame.url : this._scriptMap.get(frame.location.scriptId).url;
+      var scriptId = frame.location ? frame.location.scriptId : frame.scriptId;
+      var url = frame.url ? frame.url : this._scriptMap.get(scriptId).url;
       var lineNumber = frame.location ? frame.location.lineNumber : frame.lineNumber;
       var columnNumber = frame.location ? frame.location.columnNumber : frame.columnNumber;
       InspectorTest.log(`${functionName} (${url}:${lineNumber}:${columnNumber})`);
     }
   }
 
-  logSourceLocation(location) {
+  logSourceLocation(location, forceSourceRequest) {
     var scriptId = location.scriptId;
     if (!this._scriptMap || !this._scriptMap.has(scriptId)) {
       InspectorTest.log("setupScriptMap should be called before Protocol.Debugger.enable.");
       InspectorTest.completeTest();
     }
     var script = this._scriptMap.get(scriptId);
-    if (!script.scriptSource) {
+    if (!script.scriptSource || forceSourceRequest) {
       return this.Protocol.Debugger.getScriptSource({ scriptId })
           .then(message => script.scriptSource = message.result.scriptSource)
           .then(dumpSourceWithLocation);
@@ -273,20 +299,37 @@ InspectorTest.Session = class {
     }
   }
 
+  async logTypeProfile(typeProfile, source) {
+    let entries = typeProfile.entries;
+
+    // Sort in reverse order so we can replace entries without invalidating
+    // the other offsets.
+    entries = entries.sort((a, b) => b.offset - a.offset);
+
+    for (let entry of entries) {
+      source = source.slice(0, entry.offset) + typeAnnotation(entry.types) +
+        source.slice(entry.offset);
+    }
+    InspectorTest.log(source);
+    return typeProfile;
+
+    function typeAnnotation(types) {
+      return `/*${types.map(t => t.name).join(', ')}*/`;
+    }
+  }
+
   logAsyncStackTrace(asyncStackTrace) {
     while (asyncStackTrace) {
-      if (asyncStackTrace.promiseCreationFrame) {
-        var frame = asyncStackTrace.promiseCreationFrame;
-        InspectorTest.log(`-- ${asyncStackTrace.description} (${frame.url}:${frame.lineNumber}:${frame.columnNumber})--`);
-      } else {
-        InspectorTest.log(`-- ${asyncStackTrace.description} --`);
-      }
+      InspectorTest.log(`-- ${asyncStackTrace.description || '<empty>'} --`);
       this.logCallFrames(asyncStackTrace.callFrames);
+      if (asyncStackTrace.parentId) InspectorTest.log('  <external stack>');
       asyncStackTrace = asyncStackTrace.parent;
     }
   }
 
   _sendCommandPromise(method, params) {
+    if (typeof params !== 'object')
+      utils.print(`WARNING: non-object params passed to invocation of method ${method}`);
     if (InspectorTest._commandsForLogging.has(method))
       utils.print(method + ' called');
     var requestId = ++this._requestId;
@@ -304,7 +347,8 @@ InspectorTest.Session = class {
         var eventName = match[2];
         eventName = eventName.charAt(0).toLowerCase() + eventName.slice(1);
         if (match[1])
-          return () => this._waitForEventPromise(`${agentName}.${eventName}`);
+          return numOfEvents => this._waitForEventPromise(
+                     `${agentName}.${eventName}`, numOfEvents || 1);
         return listener => this._eventHandlers.set(`${agentName}.${eventName}`, listener);
       }
     })});
@@ -338,11 +382,16 @@ InspectorTest.Session = class {
     }
   };
 
-  _waitForEventPromise(eventName) {
+  _waitForEventPromise(eventName, numOfEvents) {
+    let events = [];
     return new Promise(fulfill => {
       this._eventHandlers.set(eventName, result => {
-        delete this._eventHandlers.delete(eventName);
-        fulfill(result);
+        --numOfEvents;
+        events.push(result);
+        if (numOfEvents === 0) {
+          delete this._eventHandlers.delete(eventName);
+          fulfill(events.length > 1 ? events : events[0]);
+        }
       });
     });
   }
@@ -362,6 +411,9 @@ InspectorTest.runTestSuite = function(testSuite) {
 }
 
 InspectorTest.runAsyncTestSuite = async function(testSuite) {
+  const selected = testSuite.filter(test => test.name.startsWith('f_'));
+  if (selected.length)
+    testSuite = selected;
   for (var test of testSuite) {
     InspectorTest.log("\nRunning test: " + test.name);
     try {

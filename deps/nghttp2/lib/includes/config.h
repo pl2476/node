@@ -1,8 +1,18 @@
 /* Hint to the compiler that a function never returns */
 #define NGHTTP2_NORETURN
 
-/* Define to `int' if <sys/types.h> does not define. */
-#define ssize_t int
+/* Edited to match src/node.h. */
+#include <stdint.h>
+
+#ifdef _WIN32
+#if !defined(_SSIZE_T_) && !defined(_SSIZE_T_DEFINED)
+typedef intptr_t ssize_t;
+# define _SSIZE_T_
+# define _SSIZE_T_DEFINED
+#endif
+#else  // !_WIN32
+# include <sys/types.h>  // size_t, ssize_t
+#endif  // _WIN32
 
 /* Define to 1 if you have the `std::map::emplace`. */
 #define HAVE_STD_MAP_EMPLACE 1
@@ -44,7 +54,9 @@
 /* #undef NOTHREADS */
 
 /* Define to 1 if you have the <arpa/inet.h> header file. */
-/* #undef HAVE_ARPA_INET_H */
+#ifndef _WIN32
+# define HAVE_ARPA_INET_H 1
+#endif
 
 /* Define to 1 if you have the <fcntl.h> header file. */
 #define HAVE_FCNTL_H 1

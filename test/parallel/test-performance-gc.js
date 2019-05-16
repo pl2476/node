@@ -4,8 +4,8 @@
 const common = require('../common');
 const assert = require('assert');
 const {
-  performance,
-  PerformanceObserver
+  PerformanceObserver,
+  constants
 } = require('perf_hooks');
 
 const {
@@ -13,7 +13,7 @@ const {
   NODE_PERFORMANCE_GC_MINOR,
   NODE_PERFORMANCE_GC_INCREMENTAL,
   NODE_PERFORMANCE_GC_WEAKCB
-} = process.binding('performance').constants;
+} = constants;
 
 const kinds = [
   NODE_PERFORMANCE_GC_MAJOR,
@@ -21,13 +21,6 @@ const kinds = [
   NODE_PERFORMANCE_GC_INCREMENTAL,
   NODE_PERFORMANCE_GC_WEAKCB
 ];
-
-// No observers for GC events, no entries should appear
-{
-  global.gc();
-  const entries = performance.getEntriesByType('gc');
-  assert.strictEqual(entries.length, 0);
-}
 
 // Adding an observer should force at least one gc to appear
 {
@@ -39,13 +32,20 @@ const kinds = [
     assert(kinds.includes(entry.kind));
     assert.strictEqual(typeof entry.startTime, 'number');
     assert.strictEqual(typeof entry.duration, 'number');
-
-    performance.clearGC();
-
-    const entries = performance.getEntriesByType('gc');
-    assert.strictEqual(entries.length, 0);
     obs.disconnect();
   }));
   obs.observe({ entryTypes: ['gc'] });
   global.gc();
+  // Keep the event loop alive to witness the GC async callback happen.
+  setImmediate(() => setImmediate(() => 0));
+}
+
+// GC should not keep the event loop alive
+{
+  let didCall = false;
+  process.on('beforeExit', () => {
+    assert(!didCall);
+    didCall = true;
+    global.gc();
+  });
 }

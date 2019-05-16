@@ -1,6 +1,6 @@
 'use strict';
 const common = require('../common.js');
-const path = require('path');
+const { posix } = require('path');
 
 const bench = common.createBenchmark(main, {
   path: [
@@ -10,19 +10,15 @@ const bench = common.createBenchmark(main, {
     '/foo/bar',
     'foo',
     'foo/bar',
-    '/foo/bar/baz/asdf/quux'
+    '/foo/bar/baz/asdf/quux',
   ],
-  n: [1e6]
+  n: [1e5]
 });
 
-function main(conf) {
-  const n = +conf.n;
-  const p = path.posix;
-  const input = String(conf.path);
-
+function main({ n, path }) {
   bench.start();
   for (var i = 0; i < n; i++) {
-    p.dirname(input);
+    posix.dirname(i % 3 === 0 ? `${path}${i}` : path);
   }
   bench.end(n);
 }

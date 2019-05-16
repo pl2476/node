@@ -4,18 +4,15 @@ const common = require('../common.js');
 const lookup = require('dns').lookup;
 
 const bench = common.createBenchmark(main, {
-  name: ['', '127.0.0.1', '::1'],
+  name: ['127.0.0.1', '::1'],
   all: ['true', 'false'],
   n: [5e6]
 });
 
-function main(conf) {
-  const name = conf.name;
-  const n = +conf.n;
-  const all = conf.all === 'true' ? true : false;
+function main({ name, n, all }) {
   var i = 0;
 
-  if (all) {
+  if (all === 'true') {
     const opts = { all: true };
     bench.start();
     (function cb() {

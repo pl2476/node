@@ -11,15 +11,20 @@ const utils = require('./rules-utils.js');
 // Rule Definition
 //------------------------------------------------------------------------------
 const msg = 'Please add a skipIfInspectorDisabled() call to allow this ' +
-            'test to be skippped when Node is built \'--without-inspector\'.';
+            'test to be skipped when Node is built \'--without-inspector\'.';
 
 module.exports = function(context) {
-  var usesInspector = false;
-  var hasInspectorCheck = false;
+  const missingCheckNodes = [];
+  let commonModuleNode = null;
+  let hasInspectorCheck = false;
 
   function testInspectorUsage(context, node) {
     if (utils.isRequired(node, ['inspector'])) {
-      usesInspector = true;
+      missingCheckNodes.push(node);
+    }
+
+    if (utils.isCommonModule(node)) {
+      commonModuleNode = node;
     }
   }
 
@@ -29,15 +34,28 @@ module.exports = function(context) {
     }
   }
 
-  function reportIfMissing(context, node) {
-    if (usesInspector && !hasInspectorCheck) {
-      context.report(node, msg);
+  function reportIfMissing(context) {
+    if (!hasInspectorCheck) {
+      missingCheckNodes.forEach((node) => {
+        context.report({
+          node,
+          message: msg,
+          fix: (fixer) => {
+            if (commonModuleNode) {
+              return fixer.insertTextAfter(
+                commonModuleNode,
+                '\ncommon.skipIfInspectorDisabled();'
+              );
+            }
+          }
+        });
+      });
     }
   }
 
   return {
     'CallExpression': (node) => testInspectorUsage(context, node),
     'MemberExpression': (node) => checkMemberExpression(context, node),
-    'Program:exit': (node) => reportIfMissing(context, node)
+    'Program:exit': () => reportIfMissing(context)
   };
 };

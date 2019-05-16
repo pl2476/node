@@ -18,7 +18,7 @@ test('cache add', function (t) {
         if (er) throw er
         t.ok(c, 'got non-zero exit code')
         t.equal(so, '', 'nothing printed to stdout')
-        t.similar(se, /404 Not Found: superfoo/, 'got expected error')
+        t.similar(se, /404 Not Found.*superfoo/, 'got expected error')
         s.close()
         t.end()
       }
@@ -29,7 +29,7 @@ test('cache add', function (t) {
 function setup (cb) {
   var s = require('http').createServer(function (req, res) {
     res.statusCode = 404
-    res.end('{\"error\":\"not_found\"}\n')
+    res.end('{"error":"not_found"}\n')
   })
   s.listen(1337, function () {
     cb(null, s)

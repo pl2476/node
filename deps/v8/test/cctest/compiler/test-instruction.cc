@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/code-generator.h"
+#include "src/compiler/backend/code-generator.h"
+#include "src/compiler/backend/instruction.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
-#include "src/compiler/instruction.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node.h"
@@ -30,7 +30,7 @@ class InstructionTester : public HandleAndZoneScope {
         schedule(zone()),
         common(zone()),
         machine(zone()),
-        code(NULL) {}
+        code(nullptr) {}
 
   Graph graph;
   Schedule schedule;
@@ -82,8 +82,13 @@ class InstructionTester : public HandleAndZoneScope {
     return code->AddInstruction(instr);
   }
 
+  int NewNop() {
+    TestInstr* instr = TestInstr::New(zone(), kArchNop);
+    return code->AddInstruction(instr);
+  }
+
   UnallocatedOperand Unallocated(int vreg) {
-    return UnallocatedOperand(UnallocatedOperand::ANY, vreg);
+    return UnallocatedOperand(UnallocatedOperand::REGISTER_OR_SLOT, vreg);
   }
 
   RpoNumber RpoFor(BasicBlock* block) {
@@ -163,6 +168,7 @@ TEST(InstructionGetBasicBlock) {
   int i8 = R.NewInstr();
   R.code->EndBlock(R.RpoFor(b2));
   R.code->StartBlock(R.RpoFor(b3));
+  R.NewNop();
   R.code->EndBlock(R.RpoFor(b3));
 
   CHECK_EQ(b0, R.GetBasicBlock(i0));
@@ -205,7 +211,7 @@ TEST(InstructionIsGapAt) {
   R.code->AddInstruction(g);
   R.code->EndBlock(R.RpoFor(b0));
 
-  CHECK(R.code->instructions().size() == 2);
+  CHECK_EQ(2, R.code->instructions().size());
 }
 
 
@@ -232,7 +238,7 @@ TEST(InstructionIsGapAt2) {
   R.code->AddInstruction(g1);
   R.code->EndBlock(R.RpoFor(b1));
 
-  CHECK(R.code->instructions().size() == 4);
+  CHECK_EQ(4, R.code->instructions().size());
 }
 
 
@@ -250,7 +256,7 @@ TEST(InstructionAddGapMove) {
   R.code->AddInstruction(g);
   R.code->EndBlock(R.RpoFor(b0));
 
-  CHECK(R.code->instructions().size() == 2);
+  CHECK_EQ(2, R.code->instructions().size());
 
   int index = 0;
   for (auto instr : R.code->instructions()) {

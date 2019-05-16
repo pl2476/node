@@ -23,44 +23,44 @@
 const common = require('../common');
 const assert = require('assert');
 
-// the default behavior, return an Array "tuple" of numbers
+// The default behavior, return an Array "tuple" of numbers
 const tuple = process.hrtime();
 
-// validate the default behavior
+// Validate the default behavior
 validateTuple(tuple);
 
-// validate that passing an existing tuple returns another valid tuple
+// Validate that passing an existing tuple returns another valid tuple
 validateTuple(process.hrtime(tuple));
 
-// test that only an Array may be passed to process.hrtime()
-assert.throws(() => {
+// Test that only an Array may be passed to process.hrtime()
+common.expectsError(() => {
   process.hrtime(1);
-}, common.expectsError({
+}, {
   code: 'ERR_INVALID_ARG_TYPE',
   type: TypeError,
   message: 'The "time" argument must be of type Array. Received type number'
-}));
-assert.throws(() => {
+});
+common.expectsError(() => {
   process.hrtime([]);
-}, common.expectsError({
-  code: 'ERR_INVALID_ARRAY_LENGTH',
-  type: TypeError,
-  message: 'The array "time" (length 0) must be of length 2.'
-}));
-assert.throws(() => {
+}, {
+  code: 'ERR_OUT_OF_RANGE',
+  type: RangeError,
+  message: 'The value of "time" is out of range. It must be 2. Received 0'
+});
+common.expectsError(() => {
   process.hrtime([1]);
-}, common.expectsError({
-  code: 'ERR_INVALID_ARRAY_LENGTH',
-  type: TypeError,
-  message: 'The array "time" (length 1) must be of length 2.'
-}));
-assert.throws(() => {
+}, {
+  code: 'ERR_OUT_OF_RANGE',
+  type: RangeError,
+  message: 'The value of "time" is out of range. It must be 2. Received 1'
+});
+common.expectsError(() => {
   process.hrtime([1, 2, 3]);
-}, common.expectsError({
-  code: 'ERR_INVALID_ARRAY_LENGTH',
-  type: TypeError,
-  message: 'The array "time" (length 3) must be of length 2.'
-}));
+}, {
+  code: 'ERR_OUT_OF_RANGE',
+  type: RangeError,
+  message: 'The value of "time" is out of range. It must be 2. Received 3'
+});
 
 function validateTuple(tuple) {
   assert(Array.isArray(tuple));
@@ -70,4 +70,4 @@ function validateTuple(tuple) {
 }
 
 const diff = process.hrtime([0, 1e9 - 1]);
-assert(diff[1] >= 0);  // https://github.com/nodejs/node/issues/4751
+assert(diff[1] >= 0); // https://github.com/nodejs/node/issues/4751

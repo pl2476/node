@@ -35,6 +35,7 @@ let expectEndingData = expectTotalData;
 const r = new Readable({ highWaterMark: 1000 });
 let chunks = totalChunks;
 r._read = function(n) {
+  console.log('_read called', chunks);
   if (!(chunks % 2))
     setImmediate(push);
   else if (!(chunks % 3))
@@ -49,32 +50,34 @@ function push() {
   if (chunk) {
     totalPushed += chunk.length;
   }
+  console.log('chunks', chunks);
   r.push(chunk);
 }
 
 read100();
 
-// first we read 100 bytes
+// First we read 100 bytes.
 function read100() {
   readn(100, onData);
 }
 
 function readn(n, then) {
-  console.error('read %d', n);
+  console.error(`read ${n}`);
   expectEndingData -= n;
   (function read() {
     const c = r.read(n);
+    console.error('c', c);
     if (!c)
       r.once('readable', read);
     else {
       assert.strictEqual(c.length, n);
-      assert(!r._readableState.flowing);
+      assert(!r.readableFlowing);
       then();
     }
   })();
 }
 
-// then we listen to some data events
+// Then we listen to some data events.
 function onData() {
   expectEndingData -= 100;
   console.error('onData');
@@ -82,24 +85,24 @@ function onData() {
   r.on('data', function od(c) {
     seen += c.length;
     if (seen >= 100) {
-      // seen enough
+      // Seen enough
       r.removeListener('data', od);
       r.pause();
       if (seen > 100) {
-        // oh no, seen too much!
-        // put the extra back.
+        // Oh no, seen too much!
+        // Put the extra back.
         const diff = seen - 100;
         r.unshift(c.slice(c.length - diff));
         console.error('seen too much', seen, diff);
       }
 
-      // Nothing should be lost in between
+      // Nothing should be lost in-between.
       setImmediate(pipeLittle);
     }
   });
 }
 
-// Just pipe 200 bytes, then unshift the extra and unpipe
+// Just pipe 200 bytes, then unshift the extra and unpipe.
 function pipeLittle() {
   expectEndingData -= 200;
   console.error('pipe a little');
@@ -127,14 +130,14 @@ function pipeLittle() {
   r.pipe(w);
 }
 
-// now read 1234 more bytes
+// Now read 1234 more bytes.
 function read1234() {
   readn(1234, resumePause);
 }
 
 function resumePause() {
   console.error('resumePause');
-  // don't read anything, just resume and re-pause a whole bunch
+  // Don't read anything, just resume and re-pause a whole bunch.
   r.resume();
   r.pause();
   r.resume();

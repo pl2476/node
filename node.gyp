@@ -1,28 +1,38 @@
 {
   'variables': {
-    'v8_use_snapshot%': 'false',
+    'v8_use_siphash%': 0,
+    'v8_use_snapshot%': 0,
     'v8_trace_maps%': 0,
     'node_use_dtrace%': 'false',
-    'node_use_lttng%': 'false',
     'node_use_etw%': 'false',
-    'node_use_perfctr%': 'false',
     'node_no_browser_globals%': 'false',
+    'node_use_node_snapshot%': 'false',
     'node_use_v8_platform%': 'true',
     'node_use_bundled_v8%': 'true',
     'node_shared%': 'false',
     'force_dynamic_crt%': 0,
     'node_module_version%': '',
+    'node_shared_brotli%': 'false',
     'node_shared_zlib%': 'false',
     'node_shared_http_parser%': 'false',
     'node_shared_cares%': 'false',
     'node_shared_libuv%': 'false',
+    'node_shared_nghttp2%': 'false',
     'node_use_openssl%': 'true',
     'node_shared_openssl%': 'false',
     'node_v8_options%': '',
     'node_enable_v8_vtunejit%': 'false',
     'node_core_target_name%': 'node',
+    'node_lib_target_name%': 'libnode',
+    'node_intermediate_lib_type%': 'static_library',
     'library_files': [
-      'lib/internal/bootstrap_node.js',
+      'lib/internal/bootstrap/environment.js',
+      'lib/internal/bootstrap/loaders.js',
+      'lib/internal/bootstrap/node.js',
+      'lib/internal/bootstrap/pre_execution.js',
+      'lib/internal/per_context/primordials.js',
+      'lib/internal/per_context/setup.js',
+      'lib/internal/per_context/domexception.js',
       'lib/async_hooks.js',
       'lib/assert.js',
       'lib/buffer.js',
@@ -68,15 +78,20 @@
       'lib/timers.js',
       'lib/tls.js',
       'lib/_tls_common.js',
-      'lib/_tls_legacy.js',
       'lib/_tls_wrap.js',
+      'lib/trace_events.js',
       'lib/tty.js',
       'lib/url.js',
       'lib/util.js',
       'lib/v8.js',
       'lib/vm.js',
+      'lib/worker_threads.js',
       'lib/zlib.js',
+      'lib/internal/assert.js',
+      'lib/internal/assert/assertion_error.js',
+      'lib/internal/async_hooks.js',
       'lib/internal/buffer.js',
+      'lib/internal/cli_table.js',
       'lib/internal/child_process.js',
       'lib/internal/cluster/child.js',
       'lib/internal/cluster/master.js',
@@ -84,54 +99,115 @@
       'lib/internal/cluster/shared_handle.js',
       'lib/internal/cluster/utils.js',
       'lib/internal/cluster/worker.js',
+      'lib/internal/console/constructor.js',
+      'lib/internal/console/global.js',
       'lib/internal/crypto/certificate.js',
       'lib/internal/crypto/cipher.js',
       'lib/internal/crypto/diffiehellman.js',
       'lib/internal/crypto/hash.js',
+      'lib/internal/crypto/keygen.js',
+      'lib/internal/crypto/keys.js',
       'lib/internal/crypto/pbkdf2.js',
       'lib/internal/crypto/random.js',
+      'lib/internal/crypto/scrypt.js',
       'lib/internal/crypto/sig.js',
       'lib/internal/crypto/util.js',
+      'lib/internal/constants.js',
+      'lib/internal/dgram.js',
+      'lib/internal/dns/promises.js',
+      'lib/internal/dns/utils.js',
+      'lib/internal/dtrace.js',
       'lib/internal/encoding.js',
       'lib/internal/errors.js',
+      'lib/internal/error-serdes.js',
+      'lib/internal/fixed_queue.js',
       'lib/internal/freelist.js',
-      'lib/internal/fs.js',
+      'lib/internal/freeze_intrinsics.js',
+      'lib/internal/fs/promises.js',
+      'lib/internal/fs/read_file_context.js',
+      'lib/internal/fs/streams.js',
+      'lib/internal/fs/sync_write_stream.js',
+      'lib/internal/fs/utils.js',
+      'lib/internal/fs/watchers.js',
       'lib/internal/http.js',
+      'lib/internal/idna.js',
       'lib/internal/inspector_async_hook.js',
+      'lib/internal/js_stream_socket.js',
       'lib/internal/linkedlist.js',
-      'lib/internal/loader/Loader.js',
-      'lib/internal/loader/ModuleMap.js',
-      'lib/internal/loader/ModuleJob.js',
-      'lib/internal/loader/ModuleWrap.js',
-      'lib/internal/loader/resolveRequestUrl.js',
-      'lib/internal/loader/search.js',
-      'lib/internal/safe_globals.js',
+      'lib/internal/main/check_syntax.js',
+      'lib/internal/main/eval_string.js',
+      'lib/internal/main/eval_stdin.js',
+      'lib/internal/main/inspect.js',
+      'lib/internal/main/print_bash_completion.js',
+      'lib/internal/main/print_help.js',
+      'lib/internal/main/prof_process.js',
+      'lib/internal/main/repl.js',
+      'lib/internal/main/run_main_module.js',
+      'lib/internal/main/run_third_party_main.js',
+      'lib/internal/main/worker_thread.js',
+      'lib/internal/modules/cjs/helpers.js',
+      'lib/internal/modules/cjs/loader.js',
+      'lib/internal/modules/esm/loader.js',
+      'lib/internal/modules/esm/create_dynamic_module.js',
+      'lib/internal/modules/esm/default_resolve.js',
+      'lib/internal/modules/esm/module_job.js',
+      'lib/internal/modules/esm/module_map.js',
+      'lib/internal/modules/esm/translators.js',
       'lib/internal/net.js',
-      'lib/internal/module.js',
-      'lib/internal/os.js',
-      'lib/internal/process/next_tick.js',
+      'lib/internal/options.js',
+      'lib/internal/policy/manifest.js',
+      'lib/internal/policy/sri.js',
+      'lib/internal/priority_queue.js',
+      'lib/internal/process/esm_loader.js',
+      'lib/internal/process/execution.js',
+      'lib/internal/process/main_thread_only.js',
+      'lib/internal/process/per_thread.js',
+      'lib/internal/process/policy.js',
       'lib/internal/process/promises.js',
       'lib/internal/process/stdio.js',
       'lib/internal/process/warning.js',
-      'lib/internal/process.js',
+      'lib/internal/process/worker_thread_only.js',
+      'lib/internal/process/report.js',
+      'lib/internal/process/task_queues.js',
       'lib/internal/querystring.js',
-      'lib/internal/process/write-coverage.js',
       'lib/internal/readline.js',
       'lib/internal/repl.js',
+      'lib/internal/repl/await.js',
+      'lib/internal/repl/history.js',
+      'lib/internal/repl/utils.js',
       'lib/internal/socket_list.js',
-      'lib/internal/test/unicode.js',
+      'lib/internal/test/binding.js',
+      'lib/internal/timers.js',
       'lib/internal/tls.js',
+      'lib/internal/trace_events_async_hooks.js',
+      'lib/internal/tty.js',
       'lib/internal/url.js',
       'lib/internal/util.js',
+      'lib/internal/util/comparisons.js',
+      'lib/internal/util/print.js',
+      'lib/internal/util/debuglog.js',
+      'lib/internal/util/inspect.js',
+      'lib/internal/util/inspector.js',
+      'lib/internal/util/types.js',
       'lib/internal/http2/core.js',
       'lib/internal/http2/compat.js',
       'lib/internal/http2/util.js',
       'lib/internal/v8_prof_polyfill.js',
       'lib/internal/v8_prof_processor.js',
+      'lib/internal/validators.js',
+      'lib/internal/stream_base_commons.js',
+      'lib/internal/vm/source_text_module.js',
+      'lib/internal/worker.js',
+      'lib/internal/worker/io.js',
       'lib/internal/streams/lazy_transform.js',
-      'lib/internal/streams/BufferList.js',
+      'lib/internal/streams/async_iterator.js',
+      'lib/internal/streams/buffer_list.js',
+      'lib/internal/streams/duplexpair.js',
       'lib/internal/streams/legacy.js',
       'lib/internal/streams/destroy.js',
+      'lib/internal/streams/state.js',
+      'lib/internal/streams/pipeline.js',
+      'lib/internal/streams/end-of-stream.js',
       'deps/v8/tools/splaytree.js',
       'deps/v8/tools/codemap.js',
       'deps/v8/tools/consarray.js',
@@ -139,37 +215,83 @@
       'deps/v8/tools/profile.js',
       'deps/v8/tools/profile_view.js',
       'deps/v8/tools/logreader.js',
+      'deps/v8/tools/arguments.js',
       'deps/v8/tools/tickprocessor.js',
       'deps/v8/tools/SourceMap.js',
       'deps/v8/tools/tickprocessor-driver.js',
       'deps/node-inspect/lib/_inspect.js',
       'deps/node-inspect/lib/internal/inspect_client.js',
       'deps/node-inspect/lib/internal/inspect_repl.js',
+      'deps/acorn/acorn/dist/acorn.js',
+      'deps/acorn/acorn-walk/dist/walk.js',
+      'deps/acorn-plugins/acorn-bigint/index.js',
+      'deps/acorn-plugins/acorn-class-fields/index.js',
+      'deps/acorn-plugins/acorn-numeric-separator/index.js',
+      'deps/acorn-plugins/acorn-private-class-elements/index.js',
+      'deps/acorn-plugins/acorn-private-methods/index.js',
+      'deps/acorn-plugins/acorn-static-class-features/index.js',
     ],
+    'node_mksnapshot_exec': '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)node_mksnapshot<(EXECUTABLE_SUFFIX)',
+    'mkcodecache_exec': '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)mkcodecache<(EXECUTABLE_SUFFIX)',
     'conditions': [
       [ 'node_shared=="true"', {
         'node_target_type%': 'shared_library',
+        'conditions': [
+          ['OS=="aix"', {
+            # For AIX, always generate static library first,
+            # It needs an extra step to generate exp and
+            # then use both static lib and exp to create
+            # shared lib.
+            'node_intermediate_lib_type': 'static_library',
+          }, {
+            'node_intermediate_lib_type': 'shared_library',
+          }],
+        ],
       }, {
         'node_target_type%': 'executable',
       }],
       [ 'OS=="win" and '
         'node_use_openssl=="true" and '
         'node_shared_openssl=="false"', {
-        'use_openssl_def': 1,
+        'use_openssl_def%': 1,
       }, {
-        'use_openssl_def': 0,
+        'use_openssl_def%': 0,
       }],
     ],
+  },
+
+  'target_defaults': {
+    # Putting these explicitly here so not to depend on `common.gypi`.
+    # `common.gypi` need to be more general because it is used to build userland native addons.
+    # Refs: https://github.com/nodejs/node-gyp/issues/1118
+    'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
+    'xcode_settings': {
+      'WARNING_CFLAGS': [
+        '-Wall',
+        '-Wendif-labels',
+        '-W',
+        '-Wno-unused-parameter',
+        '-Werror=undefined-inline',
+      ],
+    },
+
+    # Relevant only for x86.
+    # Refs: https://github.com/nodejs/node/pull/25852
+    # Refs: https://docs.microsoft.com/en-us/cpp/build/reference/safeseh-image-has-safe-exception-handlers
+    'msvs_settings': {
+      'VCLinkerTool': {
+        'ImageHasSafeExceptionHandlers': 'false',
+      },
+    },
   },
 
   'targets': [
     {
       'target_name': '<(node_core_target_name)',
-      'type': '<(node_target_type)',
+      'type': 'executable',
 
-      'dependencies': [
-        'node_js2c#host',
-        'deps/nghttp2/nghttp2.gyp:nghttp2'
+      'defines': [
+        'NODE_WANT_INTERNALS=1',
       ],
 
       'includes': [
@@ -178,122 +300,365 @@
 
       'include_dirs': [
         'src',
-        'tools/msvs/genfiles',
-        'deps/uv/src/ares',
-        '<(SHARED_INTERMEDIATE_DIR)', # for node_natives.h
-        'deps/nghttp2/lib/includes'
+        'deps/v8/include'
       ],
 
       'sources': [
-        'src/async-wrap.cc',
+        'src/node_main.cc'
+      ],
+
+      'dependencies': [ 'deps/histogram/histogram.gyp:histogram' ],
+
+      'msvs_settings': {
+        'VCLinkerTool': {
+          'GenerateMapFile': 'true', # /MAP
+          'MapExports': 'true', # /MAPINFO:EXPORTS
+          'RandomizedBaseAddress': 2, # enable ASLR
+          'DataExecutionPrevention': 2, # enable DEP
+          'AllowIsolation': 'true',
+        },
+      },
+
+      # - "C4244: conversion from 'type1' to 'type2', possible loss of data"
+      #   Ususaly safe. Disable for `dep`, enable for `src`
+      'msvs_disabled_warnings!': [4244],
+
+      'conditions': [
+        [ 'node_intermediate_lib_type=="static_library" and '
+            'node_shared=="true" and OS=="aix"', {
+          # For AIX, shared lib is linked by static lib and .exp. In the
+          # case here, the executable needs to link to shared lib.
+          # Therefore, use 'node_aix_shared' target to generate the
+          # shared lib and then executable.
+          'dependencies': [ 'node_aix_shared' ],
+        }, {
+          'dependencies': [ '<(node_lib_target_name)' ],
+        }],
+        [ 'node_intermediate_lib_type=="static_library" and node_shared=="false"', {
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [
+              '-Wl,-force_load,<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)'
+                  '<(node_core_target_name)<(STATIC_LIB_SUFFIX)',
+            ],
+          },
+          'msvs_settings': {
+            'VCLinkerTool': {
+              'AdditionalOptions': [
+                '/WHOLEARCHIVE:<(node_lib_target_name)<(STATIC_LIB_SUFFIX)',
+              ],
+            },
+          },
+          'conditions': [
+            ['OS!="aix"', {
+              'ldflags': [
+                '-Wl,--whole-archive,<(obj_dir)/<(STATIC_LIB_PREFIX)'
+                    '<(node_core_target_name)<(STATIC_LIB_SUFFIX)',
+                '-Wl,--no-whole-archive',
+              ],
+            }],
+            [ 'OS=="win"', {
+              'sources': [ 'src/res/node.rc' ],
+              'conditions': [
+                [ 'node_use_etw=="true"', {
+                  'sources': [
+                    'tools/msvs/genfiles/node_etw_provider.rc'
+                  ],
+                }],
+              ],
+            }],
+          ],
+        }],
+        [ 'node_shared=="true"', {
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [ '-Wl,-rpath,@loader_path', ],
+          },
+        }],
+        [ 'node_report=="true"', {
+          'defines': [
+            'NODE_REPORT',
+            'NODE_ARCH="<(target_arch)"',
+            'NODE_PLATFORM="<(OS)"',
+          ],
+          'conditions': [
+            ['OS=="win"', {
+              'libraries': [ 'Ws2_32' ],
+            }],
+          ],
+        }],
+        ['node_with_ltcg=="true"', {
+          'msvs_settings': {
+            'VCCLCompilerTool': {
+              'WholeProgramOptimization': 'true'   # /GL, whole program optimization, needed for LTCG
+            },
+            'VCLibrarianTool': {
+              'AdditionalOptions': [
+                '/LTCG:INCREMENTAL',               # link time code generation
+              ],
+            },
+            'VCLinkerTool': {
+              'OptimizeReferences': 2,             # /OPT:REF
+              'EnableCOMDATFolding': 2,            # /OPT:ICF
+              'LinkIncremental': 1,                # disable incremental linking
+              'AdditionalOptions': [
+                '/LTCG:INCREMENTAL',               # incremental link-time code generation
+              ],
+            }
+          }
+        }, {
+          'msvs_settings': {
+            'VCCLCompilerTool': {
+              'WholeProgramOptimization': 'false'
+            },
+            'VCLinkerTool': {
+              'LinkIncremental': 2                 # enable incremental linking
+            },
+          },
+         }],
+        ['want_separate_host_toolset==0', {
+          'dependencies': [
+            'mkcodecache',
+          ],
+          'actions': [
+            {
+              'action_name': 'run_mkcodecache',
+              'process_outputs_as_sources': 1,
+              'inputs': [
+                '<(mkcodecache_exec)',
+              ],
+              'outputs': [
+                '<(SHARED_INTERMEDIATE_DIR)/node_code_cache.cc',
+              ],
+              'action': [
+                '<@(_inputs)',
+                '<@(_outputs)',
+              ],
+            },
+          ],
+        }, {
+          'sources': [
+            'src/node_code_cache_stub.cc'
+          ],
+        }],
+        ['node_use_node_snapshot=="true"', {
+          'dependencies': [
+            'node_mksnapshot',
+          ],
+          'actions': [
+            {
+              'action_name': 'node_mksnapshot',
+              'process_outputs_as_sources': 1,
+              'inputs': [
+                '<(node_mksnapshot_exec)',
+              ],
+              'outputs': [
+                '<(SHARED_INTERMEDIATE_DIR)/node_snapshot.cc',
+              ],
+              'action': [
+                '<@(_inputs)',
+                '<@(_outputs)',
+              ],
+            },
+          ],
+        }, {
+          'sources': [
+            'src/node_snapshot_stub.cc'
+          ],
+        }],
+      ],
+    }, # node_core_target_name
+    {
+      'target_name': '<(node_lib_target_name)',
+      'type': '<(node_intermediate_lib_type)',
+      'includes': [
+        'node.gypi',
+      ],
+
+      'include_dirs': [
+        'src',
+        '<(SHARED_INTERMEDIATE_DIR)' # for node_natives.h
+      ],
+      'dependencies': [ 'deps/histogram/histogram.gyp:histogram' ],
+
+      'sources': [
+        'src/api/async_resource.cc',
+        'src/api/callback.cc',
+        'src/api/encoding.cc',
+        'src/api/environment.cc',
+        'src/api/exceptions.cc',
+        'src/api/hooks.cc',
+        'src/api/utils.cc',
+
+        'src/async_wrap.cc',
         'src/cares_wrap.cc',
-        'src/connection_wrap.cc',
         'src/connect_wrap.cc',
+        'src/connection_wrap.cc',
+        'src/debug_utils.cc',
         'src/env.cc',
         'src/fs_event_wrap.cc',
         'src/handle_wrap.cc',
+        'src/heap_utils.cc',
+        'src/js_native_api.h',
+        'src/js_native_api_types.h',
+        'src/js_native_api_v8.cc',
+        'src/js_native_api_v8.h',
+        'src/js_native_api_v8_internals.h',
         'src/js_stream.cc',
         'src/module_wrap.cc',
         'src/node.cc',
         'src/node_api.cc',
-        'src/node_api.h',
-        'src/node_api_types.h',
+        'src/node_binding.cc',
         'src/node_buffer.cc',
         'src/node_config.cc',
         'src/node_constants.cc',
         'src/node_contextify.cc',
-        'src/node_debug_options.cc',
+        'src/node_credentials.cc',
+        'src/node_domain.cc',
+        'src/node_env_var.cc',
+        'src/node_errors.cc',
         'src/node_file.cc',
+        'src/node_http_parser_llhttp.cc',
+        'src/node_http_parser_traditional.cc',
         'src/node_http2.cc',
-        'src/node_http_parser.cc',
-        'src/node_main.cc',
+        'src/node_i18n.cc',
+        'src/node_main_instance.cc',
+        'src/node_messaging.cc',
+        'src/node_metadata.cc',
+        'src/node_native_module.cc',
+        'src/node_native_module_env.cc',
+        'src/node_options.cc',
         'src/node_os.cc',
-        'src/node_platform.cc',
         'src/node_perf.cc',
+        'src/node_platform.cc',
+        'src/node_postmortem_metadata.cc',
+        'src/node_process_events.cc',
+        'src/node_process_methods.cc',
+        'src/node_process_object.cc',
         'src/node_serdes.cc',
+        'src/node_stat_watcher.cc',
+        'src/node_symbols.cc',
+        'src/node_task_queue.cc',
+        'src/node_trace_events.cc',
+        'src/node_types.cc',
         'src/node_url.cc',
         'src/node_util.cc',
         'src/node_v8.cc',
-        'src/node_stat_watcher.cc',
         'src/node_watchdog.cc',
+        'src/node_worker.cc',
         'src/node_zlib.cc',
-        'src/node_i18n.cc',
         'src/pipe_wrap.cc',
         'src/process_wrap.cc',
+        'src/sharedarraybuffer_metadata.cc',
         'src/signal_wrap.cc',
         'src/spawn_sync.cc',
-        'src/string_bytes.cc',
-        'src/string_search.cc',
         'src/stream_base.cc',
+        'src/stream_pipe.cc',
         'src/stream_wrap.cc',
+        'src/string_bytes.cc',
+        'src/string_decoder.cc',
         'src/tcp_wrap.cc',
-        'src/timer_wrap.cc',
+        'src/timers.cc',
         'src/tracing/agent.cc',
         'src/tracing/node_trace_buffer.cc',
         'src/tracing/node_trace_writer.cc',
         'src/tracing/trace_event.cc',
+        'src/tracing/traced_value.cc',
         'src/tty_wrap.cc',
         'src/udp_wrap.cc',
         'src/util.cc',
         'src/uv.cc',
         # headers to make for a more pleasant IDE experience
         'src/aliased_buffer.h',
-        'src/async-wrap.h',
-        'src/async-wrap-inl.h',
-        'src/base-object.h',
-        'src/base-object-inl.h',
-        'src/connection_wrap.h',
+        'src/async_wrap.h',
+        'src/async_wrap-inl.h',
+        'src/base_object.h',
+        'src/base_object-inl.h',
+        'src/base64.h',
         'src/connect_wrap.h',
+        'src/connection_wrap.h',
+        'src/debug_utils.h',
         'src/env.h',
         'src/env-inl.h',
         'src/handle_wrap.h',
+        'src/histogram.h',
+        'src/histogram-inl.h',
+        'src/http_parser_adaptor.h',
         'src/js_stream.h',
+        'src/memory_tracker.h',
+        'src/memory_tracker-inl.h',
         'src/module_wrap.h',
         'src/node.h',
-        'src/node_http2_core.h',
-        'src/node_http2_core-inl.h',
+        'src/node_api.h',
+        'src/node_api_types.h',
+        'src/node_binding.h',
         'src/node_buffer.h',
         'src/node_constants.h',
-        'src/node_debug_options.h',
+        'src/node_context_data.h',
+        'src/node_contextify.h',
+        'src/node_errors.h',
+        'src/node_file.h',
+        'src/node_http_parser_impl.h',
         'src/node_http2.h',
         'src/node_http2_state.h',
+        'src/node_i18n.h',
         'src/node_internals.h',
-        'src/node_javascript.h',
+        'src/node_main_instance.h',
+        'src/node_messaging.h',
+        'src/node_metadata.h',
         'src/node_mutex.h',
-        'src/node_platform.h',
+        'src/node_native_module.h',
+        'src/node_native_module_env.h',
+        'src/node_object_wrap.h',
+        'src/node_options.h',
+        'src/node_options-inl.h',
         'src/node_perf.h',
         'src/node_perf_common.h',
-        'src/node_root_certs.h',
-        'src/node_version.h',
-        'src/node_watchdog.h',
-        'src/node_wrap.h',
+        'src/node_platform.h',
+        'src/node_process.h',
         'src/node_revert.h',
-        'src/node_i18n.h',
+        'src/node_root_certs.h',
+        'src/node_stat_watcher.h',
+        'src/node_union_bytes.h',
+        'src/node_url.h',
+        'src/node_version.h',
+        'src/node_v8_platform-inl.h',
+        'src/node_watchdog.h',
+        'src/node_worker.h',
         'src/pipe_wrap.h',
-        'src/tty_wrap.h',
-        'src/tcp_wrap.h',
-        'src/udp_wrap.h',
-        'src/req-wrap.h',
-        'src/req-wrap-inl.h',
-        'src/string_bytes.h',
+        'src/req_wrap.h',
+        'src/req_wrap-inl.h',
+        'src/sharedarraybuffer_metadata.h',
+        'src/spawn_sync.h',
         'src/stream_base.h',
         'src/stream_base-inl.h',
+        'src/stream_pipe.h',
         'src/stream_wrap.h',
+        'src/string_bytes.h',
+        'src/string_decoder.h',
+        'src/string_decoder-inl.h',
+        'src/string_search.h',
+        'src/tcp_wrap.h',
         'src/tracing/agent.h',
         'src/tracing/node_trace_buffer.h',
         'src/tracing/node_trace_writer.h',
-        'src/tracing/trace_event.h'
+        'src/tracing/trace_event.h',
+        'src/tracing/trace_event_common.h',
+        'src/tracing/traced_value.h',
+        'src/tty_wrap.h',
+        'src/udp_wrap.h',
         'src/util.h',
         'src/util-inl.h',
+        # Dependency headers
         'deps/http_parser/http_parser.h',
         'deps/v8/include/v8.h',
-        'deps/v8/include/v8-debug.h',
         # javascript files to make for an even more pleasant IDE experience
         '<@(library_files)',
-        # node.gyp is added to the project by default.
+        # node.gyp is added by default, common.gypi is added for change detection
         'common.gypi',
-        '<(SHARED_INTERMEDIATE_DIR)/node_javascript.cc',
       ],
+
+      'variables': {
+        'openssl_system_ca_path%': '',
+      },
 
       'defines': [
         'NODE_ARCH="<(target_arch)"',
@@ -301,23 +666,158 @@
         'NODE_WANT_INTERNALS=1',
         # Warn when using deprecated V8 APIs.
         'V8_DEPRECATION_WARNINGS=1',
-        # We're using the nghttp2 static lib
-        'NGHTTP2_STATICLIB'
+        'NODE_OPENSSL_SYSTEM_CERT_PATH="<(openssl_system_ca_path)"',
       ],
-    },
-    {
-      'target_name': 'mkssldef',
-      'type': 'none',
-      # TODO(bnoordhuis) Make all platforms export the same list of symbols.
-      # Teach mkssldef.py to generate linker maps that UNIX linkers understand.
+
+      # - "C4244: conversion from 'type1' to 'type2', possible loss of data"
+      #   Ususaly safe. Disable for `dep`, enable for `src`
+      'msvs_disabled_warnings!': [4244],
+
       'conditions': [
+        [ 'node_shared=="true" and node_module_version!="" and OS!="win"', {
+          'product_extension': '<(shlib_suffix)',
+          'xcode_settings': {
+            'LD_DYLIB_INSTALL_NAME':
+              '@rpath/lib<(node_core_target_name).<(shlib_suffix)'
+          },
+        }],
+        ['node_shared=="true" and OS=="aix"', {
+          'product_name': 'node_base',
+        }],
+        [ 'v8_enable_inspector==1', {
+          'includes' : [ 'src/inspector/node_inspector.gypi' ],
+        }, {
+          'defines': [ 'HAVE_INSPECTOR=0' ]
+        }],
+        [ 'OS=="win"', {
+          'conditions': [
+            [ 'node_intermediate_lib_type!="static_library"', {
+              'sources': [
+                'src/res/node.rc',
+              ],
+            }],
+          ],
+          'libraries': [
+            'Dbghelp',
+            'Psapi',
+          ],
+        }],
+        [ 'node_use_etw=="true"', {
+          'defines': [ 'HAVE_ETW=1' ],
+          'dependencies': [ 'node_etw' ],
+          'include_dirs': [
+            'src',
+            'tools/msvs/genfiles',
+            '<(SHARED_INTERMEDIATE_DIR)' # for node_natives.h
+          ],
+          'sources': [
+            'src/node_win32_etw_provider.h',
+            'src/node_win32_etw_provider-inl.h',
+            'src/node_win32_etw_provider.cc',
+            'src/node_dtrace.h',
+            'src/node_dtrace.cc',
+            'tools/msvs/genfiles/node_etw_provider.h',
+          ],
+          'conditions': [
+            ['node_intermediate_lib_type != "static_library"', {
+              'sources': [
+                'tools/msvs/genfiles/node_etw_provider.rc',
+              ],
+            }],
+          ],
+        }],
+        [ 'node_use_dtrace=="true"', {
+          'defines': [ 'HAVE_DTRACE=1' ],
+          'dependencies': [
+            'node_dtrace_header',
+            'specialize_node_d',
+          ],
+          'include_dirs': [ '<(SHARED_INTERMEDIATE_DIR)' ],
+          #
+          # DTrace is supported on linux, solaris, mac, and bsd.  There are
+          # three object files associated with DTrace support, but they're
+          # not all used all the time:
+          #
+          #   node_dtrace.o           all configurations
+          #   node_dtrace_ustack.o    not supported on mac and linux
+          #   node_dtrace_provider.o  All except OS X.  "dtrace -G" is not
+          #                           used on OS X.
+          #
+          # Note that node_dtrace_provider.cc and node_dtrace_ustack.cc do not
+          # actually exist.  They're listed here to trick GYP into linking the
+          # corresponding object files into the final "node" executable.  These
+          # object files are generated by "dtrace -G" using custom actions
+          # below, and the GYP-generated Makefiles will properly build them when
+          # needed.
+          #
+          'sources': [
+            'src/node_dtrace.h',
+            'src/node_dtrace.cc',
+          ],
+          'conditions': [
+            [ 'OS=="linux"', {
+              'sources': [
+                '<(SHARED_INTERMEDIATE_DIR)/node_dtrace_provider.o'
+              ],
+            }],
+            [ 'OS!="mac" and OS!="linux"', {
+              'sources': [
+                'src/node_dtrace_ustack.cc',
+                'src/node_dtrace_provider.cc',
+              ]
+            }
+          ] ]
+        } ],
+        [ 'node_use_openssl=="true"', {
+          'sources': [
+            'src/node_crypto.cc',
+            'src/node_crypto_bio.cc',
+            'src/node_crypto_clienthello.cc',
+            'src/node_crypto.h',
+            'src/node_crypto_bio.h',
+            'src/node_crypto_clienthello.h',
+            'src/node_crypto_clienthello-inl.h',
+            'src/node_crypto_groups.h',
+            'src/tls_wrap.cc',
+            'src/tls_wrap.h'
+          ],
+        }],
+        [ 'node_report=="true"', {
+          'sources': [
+            'src/node_report.cc',
+            'src/node_report_module.cc',
+            'src/node_report_utils.cc',
+          ],
+          'defines': [
+            'NODE_REPORT',
+            'NODE_ARCH="<(target_arch)"',
+            'NODE_PLATFORM="<(OS)"',
+          ],
+          'conditions': [
+            ['OS=="win"', {
+              'libraries': [ 'Ws2_32' ],
+            }],
+          ],
+        }],
+        [ 'node_use_large_pages=="true" and OS=="linux"', {
+          'defines': [ 'NODE_ENABLE_LARGE_CODE_PAGES=1' ],
+          # The current implementation of Large Pages is under Linux.
+          # Other implementations are possible but not currently supported.
+          'sources': [
+            'src/large_pages/node_large_page.cc',
+            'src/large_pages/node_large_page.h'
+          ],
+        }],
         [ 'use_openssl_def==1', {
+          # TODO(bnoordhuis) Make all platforms export the same list of symbols.
+          # Teach mkssldef.py to generate linker maps that UNIX linkers understand.
           'variables': {
             'mkssldef_flags': [
               # Categories to export.
               '-CAES,BF,BIO,DES,DH,DSA,EC,ECDH,ECDSA,ENGINE,EVP,HMAC,MD4,MD5,'
-              'NEXTPROTONEG,PSK,RC2,RC4,RSA,SHA,SHA0,SHA1,SHA256,SHA512,SOCK,'
-              'STDIO,TLSEXT,FP_API',
+              'PSK,RC2,RC4,RSA,SHA,SHA0,SHA1,SHA256,SHA512,SOCK,STDIO,TLSEXT,'
+              'UI,FP_API,TLS1_METHOD,TLS1_1_METHOD,TLS1_2_METHOD,SCRYPT,OCSP,'
+              'NEXTPROTONEG,RMD160,CAST,DEPRECATEDIN_1_1_0,DEPRECATEDIN_1_2_0',
               # Defines.
               '-DWIN32',
               # Symbols to filter from the export list.
@@ -337,10 +837,11 @@
             {
               'action_name': 'mkssldef',
               'inputs': [
-                'deps/openssl/openssl/util/libeay.num',
-                'deps/openssl/openssl/util/ssleay.num',
+                'deps/openssl/openssl/util/libcrypto.num',
+                'deps/openssl/openssl/util/libssl.num',
               ],
               'outputs': ['<(SHARED_INTERMEDIATE_DIR)/openssl.def'],
+              'process_outputs_as_sources': 1,
               'action': [
                 'python',
                 'tools/mkssldef.py',
@@ -353,9 +854,39 @@
           ],
         }],
       ],
-    },
-    # generate ETW header and resource files
+      'actions': [
+        {
+          'action_name': 'node_js2c',
+          'process_outputs_as_sources': 1,
+          'inputs': [
+            '<@(library_files)',
+            'config.gypi',
+            'tools/js2c_macros/check_macros.py'
+          ],
+          'outputs': [
+            '<(SHARED_INTERMEDIATE_DIR)/node_javascript.cc',
+          ],
+          'conditions': [
+            [ 'node_use_dtrace=="false" and node_use_etw=="false"', {
+              'inputs': [ 'tools/js2c_macros/notrace_macros.py' ]
+            }],
+            [ 'node_debug_lib=="false"', {
+              'inputs': [ 'tools/js2c_macros/nodcheck_macros.py' ]
+            }],
+            [ 'node_debug_lib=="true"', {
+              'inputs': [ 'tools/js2c_macros/dcheck_macros.py' ]
+            }]
+          ],
+          'action': [
+            'python', 'tools/js2c.py',
+            '<@(_outputs)',
+            '<@(_inputs)',
+          ],
+        },
+      ],
+    }, # node_lib_target_name
     {
+       # generate ETW header and resource files
       'target_name': 'node_etw',
       'type': 'none',
       'conditions': [
@@ -374,93 +905,7 @@
           ]
         } ]
       ]
-    },
-    # generate perf counter header and resource files
-    {
-      'target_name': 'node_perfctr',
-      'type': 'none',
-      'conditions': [
-        [ 'node_use_perfctr=="true"', {
-          'actions': [
-            {
-              'action_name': 'node_perfctr_man',
-              'inputs': [ 'src/res/node_perfctr_provider.man' ],
-              'outputs': [
-                'tools/msvs/genfiles/node_perfctr_provider.h',
-                'tools/msvs/genfiles/node_perfctr_provider.rc',
-                'tools/msvs/genfiles/MSG00001.BIN',
-              ],
-              'action': [ 'ctrpp <@(_inputs) '
-                          '-o tools/msvs/genfiles/node_perfctr_provider.h '
-                          '-rc tools/msvs/genfiles/node_perfctr_provider.rc'
-              ]
-            },
-          ],
-        } ]
-      ]
-    },
-    {
-      'target_name': 'v8_inspector_compress_protocol_json',
-      'type': 'none',
-      'toolsets': ['host'],
-      'conditions': [
-        [ 'v8_enable_inspector==1', {
-          'actions': [
-            {
-              'action_name': 'v8_inspector_compress_protocol_json',
-              'process_outputs_as_sources': 1,
-              'inputs': [
-                'deps/v8/src/inspector/js_protocol.json',
-              ],
-              'outputs': [
-                '<(SHARED_INTERMEDIATE_DIR)/v8_inspector_protocol_json.h',
-              ],
-              'action': [
-                'python',
-                'tools/compress_json.py',
-                '<@(_inputs)',
-                '<@(_outputs)',
-              ],
-            },
-          ],
-        }],
-      ],
-    },
-    {
-      'target_name': 'node_js2c',
-      'type': 'none',
-      'toolsets': ['host'],
-      'actions': [
-        {
-          'action_name': 'node_js2c',
-          'process_outputs_as_sources': 1,
-          'inputs': [
-            '<@(library_files)',
-            './config.gypi',
-          ],
-          'outputs': [
-            '<(SHARED_INTERMEDIATE_DIR)/node_javascript.cc',
-          ],
-          'conditions': [
-            [ 'node_use_dtrace=="false" and node_use_etw=="false"', {
-              'inputs': [ 'src/notrace_macros.py' ]
-            }],
-            ['node_use_lttng=="false"', {
-              'inputs': [ 'src/nolttng_macros.py' ]
-            }],
-            [ 'node_use_perfctr=="false"', {
-              'inputs': [ 'src/perfctr_macros.py' ]
-            }]
-          ],
-          'action': [
-            'python',
-            'tools/js2c.py',
-            '<@(_outputs)',
-            '<@(_inputs)',
-          ],
-        },
-      ],
-    }, # end node_js2c
+    }, # node_etw
     {
       'target_name': 'node_dtrace_header',
       'type': 'none',
@@ -488,7 +933,7 @@
           ]
         } ],
       ]
-    },
+    }, # node_dtrace_header
     {
       'target_name': 'node_dtrace_provider',
       'type': 'none',
@@ -498,10 +943,10 @@
             {
               'action_name': 'node_dtrace_provider_o',
               'inputs': [
-                '<(OBJ_DIR)/node/src/node_dtrace.o',
+                '<(obj_dir)/<(node_lib_target_name)/src/node_dtrace.o',
               ],
               'outputs': [
-                '<(OBJ_DIR)/node/src/node_dtrace_provider.o'
+                '<(obj_dir)/<(node_lib_target_name)/src/node_dtrace_provider.o'
               ],
               'action': [ 'dtrace', '-G', '-xnolibs', '-s', 'src/node_provider.d',
                 '<@(_inputs)', '-o', '<@(_outputs)' ]
@@ -523,7 +968,7 @@
           ],
         }],
       ]
-    },
+    }, # node_dtrace_provider
     {
       'target_name': 'node_dtrace_ustack',
       'type': 'none',
@@ -533,7 +978,7 @@
             {
               'action_name': 'node_dtrace_ustack_constants',
               'inputs': [
-                '<(V8_BASE)'
+                '<(v8_base)'
               ],
               'outputs': [
                 '<(SHARED_INTERMEDIATE_DIR)/v8constants.h'
@@ -551,7 +996,7 @@
                 '<(SHARED_INTERMEDIATE_DIR)/v8constants.h'
               ],
               'outputs': [
-                '<(OBJ_DIR)/node/src/node_dtrace_ustack.o'
+                '<(obj_dir)/<(node_lib_target_name)/src/node_dtrace_ustack.o'
               ],
               'conditions': [
                 [ 'target_arch=="ia32" or target_arch=="arm"', {
@@ -571,7 +1016,7 @@
           ]
         } ],
       ]
-    },
+    }, # node_dtrace_ustack
     {
       'target_name': 'specialize_node_d',
       'type': 'none',
@@ -597,51 +1042,18 @@
           ],
         } ],
       ]
-    },
+    }, # specialize_node_d
     {
       'target_name': 'cctest',
       'type': 'executable',
 
       'dependencies': [
-        '<(node_core_target_name)',
-        'deps/gtest/gtest.gyp:gtest',
-        'node_js2c#host',
+        '<(node_lib_target_name)',
+        'deps/histogram/histogram.gyp:histogram',
         'node_dtrace_header',
         'node_dtrace_ustack',
         'node_dtrace_provider',
       ],
-
-      'variables': {
-        'OBJ_PATH': '<(OBJ_DIR)/node/src',
-        'OBJ_GEN_PATH': '<(OBJ_DIR)/node/gen',
-        'OBJ_TRACING_PATH': '<(OBJ_DIR)/node/src/tracing',
-        'OBJ_SUFFIX': 'o',
-        'OBJ_SEPARATOR': '/',
-        'conditions': [
-          ['OS=="win"', {
-            'OBJ_SUFFIX': 'obj',
-          }],
-          ['GENERATOR=="ninja"', {
-            'OBJ_PATH': '<(OBJ_DIR)/src',
-            'OBJ_GEN_PATH': '<(OBJ_DIR)/gen',
-            'OBJ_TRACING_PATH': '<(OBJ_DIR)/src/tracing',
-            'OBJ_SEPARATOR': '/node.',
-          }, {
-            'conditions': [
-              ['OS=="win"', {
-                'OBJ_PATH': '<(OBJ_DIR)/node',
-                'OBJ_GEN_PATH': '<(OBJ_DIR)/node',
-                'OBJ_TRACING_PATH': '<(OBJ_DIR)/node',
-              }],
-              ['OS=="aix"', {
-                'OBJ_PATH': '<(OBJ_DIR)/node_base/src',
-                'OBJ_GEN_PATH': '<(OBJ_DIR)/node_base/gen',
-                'OBJ_TRACING_PATH': '<(OBJ_DIR)/node_base/src/tracing',
-              }],
-            ]}
-          ]
-        ],
-       },
 
       'includes': [
         'node.gypi'
@@ -653,47 +1065,34 @@
         'deps/v8/include',
         'deps/cares/include',
         'deps/uv/include',
-        '<(SHARED_INTERMEDIATE_DIR)', # for node_natives.h
+        'test/cctest',
       ],
 
       'defines': [ 'NODE_WANT_INTERNALS=1' ],
 
       'sources': [
-        'src/node_platform.cc',
-        'src/node_platform.h',
+        'src/node_snapshot_stub.cc',
+        'src/node_code_cache_stub.cc',
+        'test/cctest/gtest/gtest-all.cc',
+        'test/cctest/gtest/gtest_main.cc',
         'test/cctest/node_test_fixture.cc',
+        'test/cctest/node_test_fixture.h',
         'test/cctest/test_aliased_buffer.cc',
         'test/cctest/test_base64.cc',
+        'test/cctest/test_node_postmortem_metadata.cc',
         'test/cctest/test_environment.cc',
+        'test/cctest/test_linked_binding.cc',
+        'test/cctest/test_platform.cc',
+        'test/cctest/test_report_util.cc',
+        'test/cctest/test_traced_value.cc',
         'test/cctest/test_util.cc',
-        'test/cctest/test_url.cc'
-      ],
-
-      'sources!': [
-        'src/node_main.cc'
+        'test/cctest/test_url.cc',
       ],
 
       'conditions': [
-        ['node_target_type!="static_library"', {
-          'libraries': [
-            '<(OBJ_GEN_PATH)<(OBJ_SEPARATOR)node_javascript.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)node_debug_options.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)async-wrap.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)env.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)node.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)node_buffer.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)node_i18n.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)node_perf.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)node_url.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)util.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)string_bytes.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)string_search.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)stream_base.<(OBJ_SUFFIX)',
-            '<(OBJ_PATH)<(OBJ_SEPARATOR)node_constants.<(OBJ_SUFFIX)',
-            '<(OBJ_TRACING_PATH)<(OBJ_SEPARATOR)agent.<(OBJ_SUFFIX)',
-            '<(OBJ_TRACING_PATH)<(OBJ_SEPARATOR)node_trace_buffer.<(OBJ_SUFFIX)',
-            '<(OBJ_TRACING_PATH)<(OBJ_SEPARATOR)node_trace_writer.<(OBJ_SUFFIX)',
-            '<(OBJ_TRACING_PATH)<(OBJ_SEPARATOR)trace_event.<(OBJ_SUFFIX)',
+        [ 'node_use_openssl=="true"', {
+          'defines': [
+            'HAVE_OPENSSL=1',
           ],
         }],
         ['v8_enable_inspector==1', {
@@ -701,114 +1100,166 @@
             'test/cctest/test_inspector_socket.cc',
             'test/cctest/test_inspector_socket_server.cc'
           ],
-          'conditions': [
-            [ 'node_shared_zlib=="false"', {
-              'dependencies': [
-                'deps/zlib/zlib.gyp:zlib',
-              ]
-            }],
-            [ 'node_shared_openssl=="false" and node_shared=="false"', {
-              'dependencies': [
-                'deps/openssl/openssl.gyp:openssl'
-              ]
-            }],
-            [ 'node_shared_http_parser=="false"', {
-              'dependencies': [
-                'deps/http_parser/http_parser.gyp:http_parser'
-              ]
-            }],
-            [ 'node_shared_libuv=="false"', {
-              'dependencies': [
-                'deps/uv/uv.gyp:libuv'
-              ]
-            }]
-          ]
-        }],
-        [ 'node_use_v8_platform=="true"', {
-          'dependencies': [
-            'deps/v8/src/v8.gyp:v8_libplatform',
+          'defines': [
+            'HAVE_INSPECTOR=1',
           ],
-        }],
-        [ 'node_use_dtrace=="true" and OS!="mac" and OS!="linux"', {
-          'copies': [{
-            'destination': '<(OBJ_DIR)/cctest/src',
-            'files': [
-              '<(OBJ_PATH)<(OBJ_SEPARATOR)node_dtrace_ustack.<(OBJ_SUFFIX)',
-              '<(OBJ_PATH)<(OBJ_SEPARATOR)node_dtrace_provider.<(OBJ_SUFFIX)',
-              '<(OBJ_PATH)<(OBJ_SEPARATOR)node_dtrace.<(OBJ_SUFFIX)',
-            ]},
-          ],
+        }, {
+           'defines': [
+             'HAVE_INSPECTOR=0',
+           ]
         }],
         ['OS=="solaris"', {
           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
         }],
-      ]
-    }
+        # Skip cctest while building shared lib node for Windows
+        [ 'OS=="win" and node_shared=="true"', {
+          'type': 'none',
+        }],
+        [ 'node_shared=="true"', {
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [ '-Wl,-rpath,@loader_path', ],
+          },
+        }],
+        [ 'node_report=="true"', {
+          'defines': [
+            'NODE_REPORT',
+            'NODE_ARCH="<(target_arch)"',
+            'NODE_PLATFORM="<(OS)"',
+          ],
+          'conditions': [
+            ['OS=="win"', {
+              'libraries': [ 'Ws2_32' ],
+            }],
+          ],
+        }],
+      ],
+    }, # cctest
+    # TODO(joyeecheung): do not depend on node_lib,
+    # instead create a smaller static library node_lib_base that does
+    # just enough for node_native_module.cc and the cache builder to
+    # compile without compiling the generated code cache C++ file.
+    # So generate_code_cache -> mkcodecache -> node_lib_base,
+    #    node_lib -> node_lib_base & generate_code_cache
+    {
+      'target_name': 'mkcodecache',
+      'type': 'executable',
+
+      'dependencies': [
+        '<(node_lib_target_name)',
+        'deps/histogram/histogram.gyp:histogram',
+      ],
+
+      'includes': [
+        'node.gypi'
+      ],
+
+      'include_dirs': [
+        'src',
+        'tools/msvs/genfiles',
+        'deps/v8/include',
+        'deps/cares/include',
+        'deps/uv/include',
+      ],
+
+      'defines': [
+        'NODE_WANT_INTERNALS=1'
+      ],
+      'sources': [
+        'src/node_snapshot_stub.cc',
+        'src/node_code_cache_stub.cc',
+        'tools/code_cache/mkcodecache.cc',
+        'tools/code_cache/cache_builder.cc',
+        'tools/code_cache/cache_builder.h',
+      ],
+
+      'conditions': [
+        [ 'node_report=="true"', {
+          'conditions': [
+            ['OS=="win"', {
+              'libraries': [
+                'dbghelp.lib',
+                'PsApi.lib',
+                'Ws2_32.lib',
+              ],
+              'dll_files': [
+                'dbghelp.dll',
+                'PsApi.dll',
+                'Ws2_32.dll',
+              ],
+            }],
+          ],
+        }],
+      ],
+    }, # mkcodecache
+    {
+      'target_name': 'node_mksnapshot',
+      'type': 'executable',
+
+      'dependencies': [
+        '<(node_lib_target_name)',
+        'deps/histogram/histogram.gyp:histogram',
+      ],
+
+      'includes': [
+        'node.gypi'
+      ],
+
+      'include_dirs': [
+        'src',
+        'tools/msvs/genfiles',
+        'deps/v8/include',
+        'deps/cares/include',
+        'deps/uv/include',
+      ],
+
+      'defines': [ 'NODE_WANT_INTERNALS=1' ],
+
+      'sources': [
+        'src/node_snapshot_stub.cc',
+        'src/node_code_cache_stub.cc',
+        'tools/snapshot/node_mksnapshot.cc',
+        'tools/snapshot/snapshot_builder.cc',
+        'tools/snapshot/snapshot_builder.h',
+      ],
+
+      'conditions': [
+        [ 'node_report=="true"', {
+          'conditions': [
+            ['OS=="win"', {
+              'libraries': [ 'Ws2_32' ],
+            }],
+          ],
+        }],
+      ],
+    }, # node_mksnapshot
   ], # end targets
 
   'conditions': [
-    ['OS=="aix"', {
+    ['OS=="aix" and node_shared=="true"', {
       'targets': [
         {
-          'target_name': 'node',
-          'conditions': [
-            ['node_shared=="true"', {
-              'type': 'shared_library',
-              'ldflags': ['--shared'],
-              'product_extension': '<(shlib_suffix)',
-            }, {
-              'type': 'executable',
-            }],
-            ['target_arch=="ppc64"', {
-              'ldflags': [
-                '-Wl,-blibpath:/usr/lib:/lib:/opt/freeware/lib/pthread/ppc64'
-              ],
-            }],
-            ['target_arch=="ppc"', {
-              'ldflags': [
-                '-Wl,-blibpath:/usr/lib:/lib:/opt/freeware/lib/pthread'
-              ],
-            }]
+          'target_name': 'node_aix_shared',
+          'type': 'shared_library',
+          'product_name': '<(node_core_target_name)',
+          'ldflags': ['--shared'],
+          'product_extension': '<(shlib_suffix)',
+          'includes': [
+            'node.gypi'
           ],
-          'dependencies': ['<(node_core_target_name)', 'node_exp'],
-
+          'dependencies': ['<(node_lib_target_name)'],
           'include_dirs': [
             'src',
             'deps/v8/include',
           ],
-
           'sources': [
-            'src/node_main.cc',
             '<@(library_files)',
-            # node.gyp is added to the project by default.
             'common.gypi',
           ],
-
-          'ldflags': ['-Wl,-bE:<(PRODUCT_DIR)/node.exp', '-Wl,-brtl'],
+          'direct_dependent_settings': {
+            'ldflags': [ '-Wl,-brtl' ],
+          },
         },
-        {
-          'target_name': 'node_exp',
-          'type': 'none',
-          'dependencies': [
-            '<(node_core_target_name)',
-          ],
-          'actions': [
-            {
-              'action_name': 'expfile',
-              'inputs': [
-                '<(OBJ_DIR)'
-              ],
-              'outputs': [
-                '<(PRODUCT_DIR)/node.exp'
-              ],
-              'action': [
-                'sh', 'tools/create_expfile.sh',
-                      '<@(_inputs)', '<@(_outputs)'
-              ],
-            }
-          ]
-        }
-      ], # end targets
+      ]
     }], # end aix section
   ], # end conditions block
 }

@@ -2,20 +2,8 @@
 const common = require('../common');
 const assert = require('assert');
 const net = require('net');
-const util = require('util');
 
 function close() { this.close(); }
-
-function listenError(literals, ...values) {
-  let result = literals[0];
-  for (const [i, value] of values.entries()) {
-    const str = util.inspect(value);
-    // Need to escape special characters.
-    result += str.replace(/[\\^$.*+?()[\]{}|=!<>:-]/g, '\\$&');
-    result += literals[i + 1];
-  }
-  return new RegExp(`Error: Invalid listen argument: ${result}`);
-}
 
 {
   // Test listen()
@@ -29,58 +17,78 @@ function listenError(literals, ...values) {
     .on('listening', common.mustCall(close));
 }
 
-// Test listen(port, cb) and listen({port: port}, cb) combinations
+// Test listen(port, cb) and listen({ port }, cb) combinations
 const listenOnPort = [
   (port, cb) => net.createServer().listen({ port }, cb),
   (port, cb) => net.createServer().listen(port, cb)
 ];
 
 {
-  const portError = /^RangeError: "port" argument must be >= 0 and < 65536$/;
+  const assertPort = () => {
+    return common.expectsError({
+      code: 'ERR_SOCKET_BAD_PORT',
+      type: RangeError
+    });
+  };
+
   for (const listen of listenOnPort) {
     // Arbitrary unused ports
     listen('0', common.mustCall(close));
     listen(0, common.mustCall(close));
     listen(undefined, common.mustCall(close));
+    listen(null, common.mustCall(close));
     // Test invalid ports
-    assert.throws(() => listen(-1, common.mustNotCall()), portError);
-    assert.throws(() => listen(NaN, common.mustNotCall()), portError);
-    assert.throws(() => listen(123.456, common.mustNotCall()), portError);
-    assert.throws(() => listen(65536, common.mustNotCall()), portError);
-    assert.throws(() => listen(1 / 0, common.mustNotCall()), portError);
-    assert.throws(() => listen(-1 / 0, common.mustNotCall()), portError);
+    assert.throws(() => listen(-1, common.mustNotCall()), assertPort());
+    assert.throws(() => listen(NaN, common.mustNotCall()), assertPort());
+    assert.throws(() => listen(123.456, common.mustNotCall()), assertPort());
+    assert.throws(() => listen(65536, common.mustNotCall()), assertPort());
+    assert.throws(() => listen(1 / 0, common.mustNotCall()), assertPort());
+    assert.throws(() => listen(-1 / 0, common.mustNotCall()), assertPort());
   }
   // In listen(options, cb), port takes precedence over path
   assert.throws(() => {
     net.createServer().listen({ port: -1, path: common.PIPE },
                               common.mustNotCall());
-  }, portError);
+  }, assertPort());
 }
 
 {
-  function shouldFailToListen(options, optionsInMessage) {
-    // Plain arguments get normalized into an object before
-    // formatted in message, options objects don't.
-    if (arguments.length === 1) {
-      optionsInMessage = options;
-    }
-    const block = () => {
+  function shouldFailToListen(options) {
+    const fn = () => {
       net.createServer().listen(options, common.mustNotCall());
     };
-    assert.throws(block, listenError`${optionsInMessage}`,
-                  `expect listen(${util.inspect(options)}) to throw`);
+
+    if (typeof options === 'object' &&
+      !(('port' in options) || ('path' in options))) {
+      common.expectsError(fn,
+                          {
+                            code: 'ERR_INVALID_ARG_VALUE',
+                            type: TypeError,
+                            message: /^The argument 'options' must have the property "port" or "path"\. Received .+$/,
+                          });
+    } else {
+      common.expectsError(fn,
+                          {
+                            code: 'ERR_INVALID_OPT_VALUE',
+                            type: TypeError,
+                            message: /^The value "{.*}" is invalid for option "options"(?:\. .+)?$/,
+                          });
+    }
   }
 
-  shouldFailToListen(null, { port: null });
-  shouldFailToListen({ port: null });
   shouldFailToListen(false, { port: false });
   shouldFailToListen({ port: false });
-  shouldFailToListen(true, { port: true });
+  shouldFailToListen(true);
   shouldFailToListen({ port: true });
   // Invalid fd as listen(handle)
   shouldFailToListen({ fd: -1 });
   // Invalid path in listen(options)
   shouldFailToListen({ path: -1 });
-  // Host without port
+
+  // Neither port or path are specified in options
+  shouldFailToListen({});
   shouldFailToListen({ host: 'localhost' });
+  shouldFailToListen({ host: 'localhost:3000' });
+  shouldFailToListen({ host: { port: 3000 } });
+  shouldFailToListen({ exclusive: true });
 }

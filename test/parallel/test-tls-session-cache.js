@@ -48,7 +48,8 @@ function doTest(testOptions, callback) {
     cert,
     ca: [cert],
     requestCert: true,
-    rejectUnauthorized: false
+    rejectUnauthorized: false,
+    secureProtocol: 'TLS_method',
   };
   let requestCount = 0;
   let resumeCount = 0;
@@ -69,14 +70,11 @@ function doTest(testOptions, callback) {
   server.on('newSession', function(id, data, cb) {
     ++newSessionCount;
     // Emulate asynchronous store
-    setTimeout(function() {
+    setImmediate(() => {
       assert.ok(!session);
-      session = {
-        id: id,
-        data: data
-      };
+      session = { id, data };
       cb();
-    }, 1000);
+    });
   });
   server.on('resumeSession', function(id, callback) {
     ++resumeCount;
@@ -92,9 +90,9 @@ function doTest(testOptions, callback) {
     }
 
     // Just to check that async really works there
-    setTimeout(function() {
+    setImmediate(() => {
       callback(null, data);
-    }, 100);
+    });
   });
 
   server.listen(0, function() {
@@ -107,10 +105,6 @@ function doTest(testOptions, callback) {
       '-cert', fixtures.path('agent.crt'),
       '-reconnect'
     ].concat(testOptions.tickets ? [] : '-no_ticket');
-
-    // for the performance and stability issue in s_client on Windows
-    if (common.isWindows)
-      args.push('-no_rand_screen');
 
     function spawnClient() {
       const client = spawn(common.opensslCli, args, {
@@ -135,7 +129,7 @@ function doTest(testOptions, callback) {
         }
         assert.strictEqual(code, 0);
         server.close(common.mustCall(function() {
-          setTimeout(callback, 100);
+          setImmediate(callback);
         }));
       }));
     }

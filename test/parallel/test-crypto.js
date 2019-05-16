@@ -25,45 +25,75 @@ const common = require('../common');
 if (!common.hasCrypto)
   common.skip('missing crypto');
 
+common.expectWarning({
+  DeprecationWarning: [
+    ['crypto.createCipher is deprecated.', 'DEP0106']
+  ]
+});
+
 const assert = require('assert');
 const crypto = require('crypto');
 const tls = require('tls');
 const fixtures = require('../common/fixtures');
 
-crypto.DEFAULT_ENCODING = 'buffer';
-
 // Test Certificates
-const caPem = fixtures.readSync('test_ca.pem', 'ascii');
-const certPem = fixtures.readSync('test_cert.pem', 'ascii');
 const certPfx = fixtures.readSync('test_cert.pfx');
-const keyPem = fixtures.readSync('test_key.pem', 'ascii');
 
 // 'this' safety
 // https://github.com/joyent/node/issues/6690
 assert.throws(function() {
-  const options = { key: keyPem, cert: certPem, ca: caPem };
-  const credentials = tls.createSecureContext(options);
+  const credentials = tls.createSecureContext();
   const context = credentials.context;
-  const notcontext = { setOptions: context.setOptions, setKey: context.setKey };
-  tls.createSecureContext({ secureOptions: 1 }, notcontext);
-}, /^TypeError: Illegal invocation$/);
+  const notcontext = { setOptions: context.setOptions };
+
+  // Methods of native objects should not segfault when reassigned to a new
+  // object and called illegally. This core dumped in 0.10 and was fixed in
+  // 0.11.
+  notcontext.setOptions();
+}, (err) => {
+  // Throws TypeError, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      /^TypeError: Illegal invocation$/.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 // PFX tests
-assert.doesNotThrow(function() {
-  tls.createSecureContext({ pfx: certPfx, passphrase: 'sample' });
-});
+tls.createSecureContext({ pfx: certPfx, passphrase: 'sample' });
 
 assert.throws(function() {
   tls.createSecureContext({ pfx: certPfx });
-}, /^Error: mac verify failure$/);
+}, (err) => {
+  // Throws general Error, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      /^Error: mac verify failure$/.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 assert.throws(function() {
   tls.createSecureContext({ pfx: certPfx, passphrase: 'test' });
-}, /^Error: mac verify failure$/);
+}, (err) => {
+  // Throws general Error, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      /^Error: mac verify failure$/.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 assert.throws(function() {
   tls.createSecureContext({ pfx: 'sample', passphrase: 'test' });
-}, /^Error: not enough data$/);
+}, (err) => {
+  // Throws general Error, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      /^Error: not enough data$/.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 
 // update() should only take buffers / strings
@@ -99,23 +129,24 @@ validateList(cryptoCiphers);
 // Assume that we have at least AES256-SHA.
 const tlsCiphers = tls.getCiphers();
 assert(tls.getCiphers().includes('aes256-sha'));
+assert(tls.getCiphers().includes('tls_aes_128_ccm_8_sha256'));
 // There should be no capital letters in any element.
 const noCapitals = /^[^A-Z]+$/;
 assert(tlsCiphers.every((value) => noCapitals.test(value)));
 validateList(tlsCiphers);
 
-// Assert that we have sha and sha1 but not SHA and SHA1.
-assert.notStrictEqual(0, crypto.getHashes().length);
+// Assert that we have sha1 and sha256 but not SHA1 and SHA256.
+assert.notStrictEqual(crypto.getHashes().length, 0);
 assert(crypto.getHashes().includes('sha1'));
-assert(crypto.getHashes().includes('sha'));
+assert(crypto.getHashes().includes('sha256'));
 assert(!crypto.getHashes().includes('SHA1'));
-assert(!crypto.getHashes().includes('SHA'));
+assert(!crypto.getHashes().includes('SHA256'));
 assert(crypto.getHashes().includes('RSA-SHA1'));
 assert(!crypto.getHashes().includes('rsa-sha1'));
 validateList(crypto.getHashes());
 
 // Assume that we have at least secp384r1.
-assert.notStrictEqual(0, crypto.getCurves().length);
+assert.notStrictEqual(crypto.getCurves().length, 0);
 assert(crypto.getCurves().includes('secp384r1'));
 assert(!crypto.getCurves().includes('SECP384R1'));
 validateList(crypto.getCurves());
@@ -134,27 +165,44 @@ testImmutability(tls.getCiphers);
 testImmutability(crypto.getHashes);
 testImmutability(crypto.getCurves);
 
-// Regression tests for #5725: hex input that's not a power of two should
-// throw, not assert in C++ land.
+// Regression tests for https://github.com/nodejs/node-v0.x-archive/pull/5725:
+// hex input that's not a power of two should throw, not assert in C++ land.
 assert.throws(function() {
   crypto.createCipher('aes192', 'test').update('0', 'hex');
-}, common.hasFipsCrypto ? /not supported in FIPS mode/ : /Bad input string/);
+}, (err) => {
+  const errorMessage =
+    common.hasFipsCrypto ? /not supported in FIPS mode/ : /Bad input string/;
+  // Throws general Error, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      errorMessage.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 assert.throws(function() {
   crypto.createDecipher('aes192', 'test').update('0', 'hex');
-}, common.hasFipsCrypto ? /not supported in FIPS mode/ : /Bad input string/);
+}, (err) => {
+  const errorMessage =
+    common.hasFipsCrypto ? /not supported in FIPS mode/ : /Bad input string/;
+  // Throws general Error, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      errorMessage.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 assert.throws(function() {
   crypto.createHash('sha1').update('0', 'hex');
-}, /^TypeError: Bad input string$/);
-
-assert.throws(function() {
-  crypto.createSign('SHA1').update('0', 'hex');
-}, /^TypeError: Bad input string$/);
-
-assert.throws(function() {
-  crypto.createVerify('SHA1').update('0', 'hex');
-}, /^TypeError: Bad input string$/);
+}, (err) => {
+  // Throws TypeError, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      /^TypeError: Bad input string$/.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 assert.throws(function() {
   const priv = [
@@ -167,7 +215,13 @@ assert.throws(function() {
     ''
   ].join('\n');
   crypto.createSign('SHA256').update('test').sign(priv);
-}, /digest too big for rsa key$/);
+}, (err) => {
+  if ((err instanceof Error) &&
+      /digest too big for rsa key$/.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 assert.throws(function() {
   // The correct header inside `test_bad_rsa_privkey.pem` should have been
@@ -181,20 +235,41 @@ assert.throws(function() {
   //   Then open private_key.pem and change its header and footer.
   const sha1_privateKey = fixtures.readSync('test_bad_rsa_privkey.pem',
                                             'ascii');
-  // this would inject errors onto OpenSSL's error stack
+  // This would inject errors onto OpenSSL's error stack
   crypto.createSign('sha1').sign(sha1_privateKey);
-}, /asn1 encoding routines:ASN1_CHECK_TLEN:wrong tag/);
+}, (err) => {
+  // Do the standard checks, but then do some custom checks afterwards.
+  assert.throws(() => { throw err; }, {
+    message: 'error:0D0680A8:asn1 encoding routines:asn1_check_tlen:wrong tag',
+    library: 'asn1 encoding routines',
+    function: 'asn1_check_tlen',
+    reason: 'wrong tag',
+    code: 'ERR_OSSL_ASN1_WRONG_TAG',
+  });
+  // Throws crypto error, so there is an opensslErrorStack property.
+  // The openSSL stack should have content.
+  assert(Array.isArray(err.opensslErrorStack));
+  assert(err.opensslErrorStack.length > 0);
+  return true;
+});
 
 // Make sure memory isn't released before being returned
 console.log(crypto.randomBytes(16));
 
 assert.throws(function() {
   tls.createSecureContext({ crl: 'not a CRL' });
-}, /^Error: Failed to parse CRL$/);
+}, (err) => {
+  // Throws general error, so there is no opensslErrorStack property.
+  if ((err instanceof Error) &&
+      /^Error: Failed to parse CRL$/.test(err) &&
+      err.opensslErrorStack === undefined) {
+    return true;
+  }
+});
 
 /**
  * Check if the stream function uses utf8 as a default encoding.
- **/
+ */
 
 function testEncoding(options, assertionHash) {
   const hash = crypto.createHash('sha256', options);

@@ -26,13 +26,13 @@ const http = require('http');
 const url = require('url');
 
 function check(request) {
-  // the correct authorization header is be passed
+  // The correct authorization header is be passed
   assert.strictEqual(request.headers.authorization, 'Basic dXNlcjpwYXNzOg==');
 }
 
 const server = http.createServer(function(request, response) {
-  // run the check function
-  check.call(this, request, response);
+  // Run the check function
+  check(request);
   response.writeHead(200, {});
   response.end('ok');
   server.close();

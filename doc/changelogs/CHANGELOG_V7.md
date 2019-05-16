@@ -1,5 +1,8 @@
 # Node.js 7 ChangeLog
 
+<!--lint disable prohibited-strings-->
+<!--lint disable maximum-line-length-->
+
 <table>
 <tr>
 <th title="Previously called 'Stable'">Current</th>
@@ -28,6 +31,10 @@
 </table>
 
 * Other Versions
+  * [12.x](CHANGELOG_V12.md)
+  * [11.x](CHANGELOG_V11.md)
+  * [10.x](CHANGELOG_V10.md)
+  * [9.x](CHANGELOG_V9.md)
   * [8.x](CHANGELOG_V8.md)
   * [6.x](CHANGELOG_V6.md)
   * [5.x](CHANGELOG_V5.md)

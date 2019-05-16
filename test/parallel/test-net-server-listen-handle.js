@@ -1,14 +1,17 @@
+// Flags: --expose-internals
 'use strict';
 
 const common = require('../common');
 const assert = require('assert');
 const net = require('net');
 const fs = require('fs');
-const uv = process.binding('uv');
-const TCP = process.binding('tcp_wrap').TCP;
-const Pipe = process.binding('pipe_wrap').Pipe;
+const { getSystemErrorName } = require('util');
+const { internalBinding } = require('internal/test/binding');
+const { TCP, constants: TCPConstants } = internalBinding('tcp_wrap');
+const { Pipe, constants: PipeConstants } = internalBinding('pipe_wrap');
 
-common.refreshTmpDir();
+const tmpdir = require('../common/tmpdir');
+tmpdir.refresh();
 
 function closeServer() {
   return common.mustCall(function() {
@@ -36,20 +39,21 @@ function randomPipePath() {
 function randomHandle(type) {
   let handle, errno, handleName;
   if (type === 'tcp') {
-    handle = new TCP();
+    handle = new TCP(TCPConstants.SOCKET);
     errno = handle.bind('0.0.0.0', 0);
     handleName = 'arbitrary tcp port';
   } else {
     const path = randomPipePath();
-    handle = new Pipe();
+    handle = new Pipe(PipeConstants.SOCKET);
     errno = handle.bind(path);
     handleName = `pipe ${path}`;
   }
 
-  if (errno < 0) {  // uv.errname requires err < 0
-    assert(errno >= 0, `unable to bind ${handleName}: ${uv.errname(errno)}`);
+  if (errno < 0) {
+    assert.fail(`unable to bind ${handleName}: ${getSystemErrorName(errno)}`);
   }
-  if (!common.isWindows) {  // fd doesn't work on windows
+
+  if (!common.isWindows) {  // `fd` doesn't work on Windows.
     // err >= 0 but fd = -1, should not happen
     assert.notStrictEqual(handle.fd, -1,
                           `Bound ${handleName} has fd -1 and errno ${errno}`);
@@ -78,7 +82,7 @@ function randomPipes(number) {
 
 // Not a public API, used by child_process
 if (!common.isWindows) {  // Windows doesn't support {fd: <n>}
-  const handles = randomPipes(2);  // generate pipes in advance
+  const handles = randomPipes(2);  // Generate pipes in advance
   // Test listen(pipe)
   net.createServer()
     .listen(handles[0])
@@ -116,7 +120,7 @@ if (!common.isWindows) {  // Windows doesn't support {fd: <n>}
 }
 
 if (!common.isWindows) {  // Windows doesn't support {fd: <n>}
-  const handles = randomPipes(6);  // generate pipes in advance
+  const handles = randomPipes(6);  // Generate pipes in advance
   // Test listen({handle: pipe}, cb)
   net.createServer()
     .listen({ handle: handles[0] }, closePipeServer(handles[0]));
@@ -144,9 +148,9 @@ if (!common.isWindows) {  // Windows doesn't support {fd: <n>}
   // Test invalid fd
   const fd = fs.openSync(__filename, 'r');
   net.createServer()
-    .listen({ fd: fd }, common.mustNotCall())
+    .listen({ fd }, common.mustNotCall())
     .on('error', common.mustCall(function(err) {
-      assert.strictEqual(String(err), 'Error: listen EINVAL');
+      assert.strictEqual(String(err), 'Error: listen EINVAL: invalid argument');
       this.close();
     }));
 }

@@ -26,7 +26,7 @@ if (!common.hasCrypto)
   common.skip('missing crypto');
 
 const assert = require('assert');
-const fs = require('fs');
+const fixtures = require('../common/fixtures');
 const https = require('https');
 const http = require('http');
 const tls = require('tls');
@@ -34,8 +34,8 @@ const tls = require('tls');
 const tests = [];
 
 const serverOptions = {
-  key: fs.readFileSync(`${common.fixturesDir}/keys/agent1-key.pem`),
-  cert: fs.readFileSync(`${common.fixturesDir}/keys/agent1-cert.pem`)
+  key: fixtures.readKey('agent1-key.pem'),
+  cert: fixtures.readKey('agent1-cert.pem')
 };
 
 function test(fn) {
@@ -71,7 +71,7 @@ test(function serverRequestTimeout(cb) {
   const server = https.createServer(
     serverOptions,
     common.mustCall((req, res) => {
-      // just do nothing, we should get a timeout event.
+      // Just do nothing, we should get a timeout event.
       const s = req.setTimeout(50, common.mustCall((socket) => {
         socket.destroy();
         server.close();
@@ -95,7 +95,7 @@ test(function serverResponseTimeout(cb) {
   const server = https.createServer(
     serverOptions,
     common.mustCall((req, res) => {
-      // just do nothing, we should get a timeout event.
+      // Just do nothing, we should get a timeout event.
       const s = res.setTimeout(50, common.mustCall((socket) => {
         socket.destroy();
         server.close();
@@ -115,7 +115,7 @@ test(function serverRequestNotTimeoutAfterEnd(cb) {
   const server = https.createServer(
     serverOptions,
     common.mustCall((req, res) => {
-      // just do nothing, we should get a timeout event.
+      // Just do nothing, we should get a timeout event.
       const s = req.setTimeout(50, common.mustNotCall());
       assert.ok(s instanceof http.IncomingMessage);
       res.on('timeout', common.mustCall());

@@ -24,7 +24,7 @@ fs.close = function() {
 };
 
 function testLeak(endFn, callback) {
-  console.log('testing for leaks from fs.createReadStream().%s()...', endFn);
+  console.log(`testing for leaks from fs.createReadStream().${endFn}()...`);
 
   let i = 0;
   let check = 0;
@@ -37,8 +37,8 @@ function testLeak(endFn, callback) {
     }
 
     assert.strictEqual(
-      0,
       openCount,
+      0,
       `no leaked file descriptors using ${endFn}() (got ${openCount})`
     );
 

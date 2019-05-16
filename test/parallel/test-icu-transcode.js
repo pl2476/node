@@ -7,15 +7,15 @@ if (!common.hasIntl)
 
 const buffer = require('buffer');
 const assert = require('assert');
-const orig = Buffer.from('tést €', 'utf8');
+const orig = Buffer.from('těst ☕', 'utf8');
 
 // Test Transcoding
 const tests = {
-  'latin1': [0x74, 0xe9, 0x73, 0x74, 0x20, 0x3f],
+  'latin1': [0x74, 0x3f, 0x73, 0x74, 0x20, 0x3f],
   'ascii': [0x74, 0x3f, 0x73, 0x74, 0x20, 0x3f],
-  'ucs2': [0x74, 0x00, 0xe9, 0x00, 0x73,
+  'ucs2': [0x74, 0x00, 0x1b, 0x01, 0x73,
            0x00, 0x74, 0x00, 0x20, 0x00,
-           0xac, 0x20]
+           0x15, 0x26]
 };
 
 for (const test in tests) {
@@ -41,9 +41,14 @@ for (const test in tests) {
                      utf8_to_ucs2.toString('ucs2'));
 }
 
-assert.throws(
+common.expectsError(
   () => buffer.transcode(null, 'utf8', 'ascii'),
-  /^TypeError: "source" argument must be a Buffer or Uint8Array$/
+  {
+    type: TypeError,
+    code: 'ERR_INVALID_ARG_TYPE',
+    message: 'The "source" argument must be one of type Buffer ' +
+             'or Uint8Array. Received type object'
+  }
 );
 
 assert.throws(

@@ -24,19 +24,20 @@ const common = require('../common');
 const fs = require('fs');
 const assert = require('assert');
 const path = require('path');
-const file = path.join(common.tmpDir, '/read_stream_fd_test.txt');
+const tmpdir = require('../common/tmpdir');
+const file = path.join(tmpdir.path, '/read_stream_fd_test.txt');
 const input = 'hello world';
 
 let output = '';
-common.refreshTmpDir();
+tmpdir.refresh();
 fs.writeFileSync(file, input);
 
 const fd = fs.openSync(file, 'r');
 const stream = fs.createReadStream(null, { fd: fd, encoding: 'utf8' });
 
-stream.on('data', (data) => {
+stream.on('data', common.mustCallAtLeast((data) => {
   output += data;
-});
+}));
 
 process.on('exit', () => {
   assert.strictEqual(output, input);

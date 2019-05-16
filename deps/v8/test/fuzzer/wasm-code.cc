@@ -13,24 +13,26 @@
 #include "test/common/wasm/test-signatures.h"
 #include "test/fuzzer/wasm-fuzzer-common.h"
 
-using namespace v8::internal;
-using namespace v8::internal::wasm;
-using namespace v8::internal::wasm::fuzzer;
+namespace v8 {
+namespace internal {
+namespace wasm {
+namespace fuzzer {
 
 class WasmCodeFuzzer : public WasmExecutionFuzzer {
-  virtual bool GenerateModule(
-      Isolate* isolate, Zone* zone, const uint8_t* data, size_t size,
+  bool GenerateModule(
+      Isolate* isolate, Zone* zone, Vector<const uint8_t> data,
       ZoneBuffer& buffer, int32_t& num_args,
       std::unique_ptr<WasmValue[]>& interpreter_args,
       std::unique_ptr<Handle<Object>[]>& compiler_args) override {
     TestSignatures sigs;
     WasmModuleBuilder builder(zone);
     WasmFunctionBuilder* f = builder.AddFunction(sigs.i_iii());
-    f->EmitCode(data, static_cast<uint32_t>(size));
+    f->EmitCode(data.start(), static_cast<uint32_t>(data.size()));
     uint8_t end_opcode = kExprEnd;
     f->EmitCode(&end_opcode, 1);
     builder.AddExport(CStrVector("main"), f);
 
+    builder.SetMaxMemorySize(32);
     builder.WriteTo(buffer);
     num_args = 3;
     interpreter_args.reset(
@@ -44,5 +46,11 @@ class WasmCodeFuzzer : public WasmExecutionFuzzer {
 };
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  return WasmCodeFuzzer().FuzzWasmModule(data, size);
+  WasmCodeFuzzer().FuzzWasmModule({data, size});
+  return 0;
 }
+
+}  // namespace fuzzer
+}  // namespace wasm
+}  // namespace internal
+}  // namespace v8

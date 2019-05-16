@@ -12,19 +12,14 @@ const chars = [
   'hello brendan!!!', // 1 byte
   'ΰαβγδεζηθικλμνξο', // 2 bytes
   '挰挱挲挳挴挵挶挷挸挹挺挻挼挽挾挿', // 3 bytes
-  '𠜎𠜱𠝹𠱓𠱸𠲖𠳏𠳕𠴕𠵼𠵿𠸎𠸏𠹷𠺝𠺢' // 4 bytes
+  '𠜎𠜱𠝹𠱓𠱸𠲖𠳏𠳕𠴕𠵼𠵿𠸎𠸏𠹷𠺝𠺢', // 4 bytes
 ];
 
-function main(conf) {
-  const n = conf.n | 0;
-  const len = conf.len | 0;
-  const encoding = conf.encoding;
-
+function main({ n, len, encoding }) {
   var strings = [];
-  var results;
+  var results = [ len * 16 ];
   if (encoding === 'buffer') {
     strings = [ Buffer.alloc(len * 16, 'a') ];
-    results = [ len * 16 ];
   } else {
     for (const string of chars) {
       // Strings must be built differently, depending on encoding
@@ -38,9 +33,7 @@ function main(conf) {
     }
 
     // Check the result to ensure it is *properly* optimized
-    results = strings.map(function(val) {
-      return Buffer.byteLength(val, encoding);
-    });
+    results = strings.map((val) => Buffer.byteLength(val, encoding));
   }
 
   bench.start();

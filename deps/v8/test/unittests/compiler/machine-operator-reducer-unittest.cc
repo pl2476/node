@@ -6,6 +6,7 @@
 #include "src/base/bits.h"
 #include "src/base/division-by-constant.h"
 #include "src/base/ieee754.h"
+#include "src/base/overflowing-math.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/typer.h"
 #include "src/conversions-inl.h"
@@ -26,14 +27,20 @@ namespace compiler {
 class MachineOperatorReducerTest : public GraphTest {
  public:
   explicit MachineOperatorReducerTest(int num_parameters = 2)
-      : GraphTest(num_parameters), machine_(zone()) {}
+      : GraphTest(num_parameters),
+        machine_(zone()),
+        common_(zone()),
+        javascript_(zone()),
+        jsgraph_(isolate(), graph(), &common_, &javascript_, nullptr,
+                 &machine_),
+        graph_reducer_(zone(), graph(), jsgraph_.Dead()) {}
 
  protected:
   Reduction Reduce(Node* node) {
     JSOperatorBuilder javascript(zone());
     JSGraph jsgraph(isolate(), graph(), common(), &javascript, nullptr,
                     &machine_);
-    MachineOperatorReducer reducer(&jsgraph);
+    MachineOperatorReducer reducer(&graph_reducer_, &jsgraph);
     return reducer.Reduce(node);
   }
 
@@ -61,6 +68,10 @@ class MachineOperatorReducerTest : public GraphTest {
 
  private:
   MachineOperatorBuilder machine_;
+  CommonOperatorBuilder common_;
+  JSOperatorBuilder javascript_;
+  JSGraph jsgraph_;
+  GraphReducer graph_reducer_;
 };
 
 
@@ -71,7 +82,7 @@ class MachineOperatorReducerTestWithParam
  public:
   explicit MachineOperatorReducerTestWithParam(int num_parameters = 2)
       : MachineOperatorReducerTest(num_parameters) {}
-  ~MachineOperatorReducerTestWithParam() override {}
+  ~MachineOperatorReducerTestWithParam() override = default;
 };
 
 
@@ -173,70 +184,116 @@ const int32_t kInt32Values[] = {
     1954730266,                          2008792749,  2045320228,
     std::numeric_limits<int32_t>::max()};
 
-
-const int64_t kInt64Values[] = {
-    std::numeric_limits<int64_t>::min(), V8_INT64_C(-8974392461363618006),
-    V8_INT64_C(-8874367046689588135),    V8_INT64_C(-8269197512118230839),
-    V8_INT64_C(-8146091527100606733),    V8_INT64_C(-7550917981466150848),
-    V8_INT64_C(-7216590251577894337),    V8_INT64_C(-6464086891160048440),
-    V8_INT64_C(-6365616494908257190),    V8_INT64_C(-6305630541365849726),
-    V8_INT64_C(-5982222642272245453),    V8_INT64_C(-5510103099058504169),
-    V8_INT64_C(-5496838675802432701),    V8_INT64_C(-4047626578868642657),
-    V8_INT64_C(-4033755046900164544),    V8_INT64_C(-3554299241457877041),
-    V8_INT64_C(-2482258764588614470),    V8_INT64_C(-1688515425526875335),
-    V8_INT64_C(-924784137176548532),     V8_INT64_C(-725316567157391307),
-    V8_INT64_C(-439022654781092241),     V8_INT64_C(-105545757668917080),
-    V8_INT64_C(-2088319373),             V8_INT64_C(-2073699916),
-    V8_INT64_C(-1844949911),             V8_INT64_C(-1831090548),
-    V8_INT64_C(-1756711933),             V8_INT64_C(-1559409497),
-    V8_INT64_C(-1281179700),             V8_INT64_C(-1211513985),
-    V8_INT64_C(-1182371520),             V8_INT64_C(-785934753),
-    V8_INT64_C(-767480697),              V8_INT64_C(-705745662),
-    V8_INT64_C(-514362436),              V8_INT64_C(-459916580),
-    V8_INT64_C(-312328082),              V8_INT64_C(-302949707),
-    V8_INT64_C(-285499304),              V8_INT64_C(-125701262),
-    V8_INT64_C(-95139843),               V8_INT64_C(-32768),
-    V8_INT64_C(-27542),                  V8_INT64_C(-23600),
-    V8_INT64_C(-18582),                  V8_INT64_C(-17770),
-    V8_INT64_C(-9086),                   V8_INT64_C(-9010),
-    V8_INT64_C(-8244),                   V8_INT64_C(-2890),
-    V8_INT64_C(-103),                    V8_INT64_C(-34),
-    V8_INT64_C(-27),                     V8_INT64_C(-25),
-    V8_INT64_C(-9),                      V8_INT64_C(-7),
-    V8_INT64_C(0),                       V8_INT64_C(2),
-    V8_INT64_C(38),                      V8_INT64_C(58),
-    V8_INT64_C(65),                      V8_INT64_C(93),
-    V8_INT64_C(111),                     V8_INT64_C(1003),
-    V8_INT64_C(1267),                    V8_INT64_C(12797),
-    V8_INT64_C(23122),                   V8_INT64_C(28200),
-    V8_INT64_C(30888),                   V8_INT64_C(42648848),
-    V8_INT64_C(116836693),               V8_INT64_C(263003643),
-    V8_INT64_C(571039860),               V8_INT64_C(1079398689),
-    V8_INT64_C(1145196402),              V8_INT64_C(1184846321),
-    V8_INT64_C(1758281648),              V8_INT64_C(1859991374),
-    V8_INT64_C(1960251588),              V8_INT64_C(2042443199),
-    V8_INT64_C(296220586027987448),      V8_INT64_C(1015494173071134726),
-    V8_INT64_C(1151237951914455318),     V8_INT64_C(1331941174616854174),
-    V8_INT64_C(2022020418667972654),     V8_INT64_C(2450251424374977035),
-    V8_INT64_C(3668393562685561486),     V8_INT64_C(4858229301215502171),
-    V8_INT64_C(4919426235170669383),     V8_INT64_C(5034286595330341762),
-    V8_INT64_C(5055797915536941182),     V8_INT64_C(6072389716149252074),
-    V8_INT64_C(6185309910199801210),     V8_INT64_C(6297328311011094138),
-    V8_INT64_C(6932372858072165827),     V8_INT64_C(8483640924987737210),
-    V8_INT64_C(8663764179455849203),     V8_INT64_C(8877197042645298254),
-    V8_INT64_C(8901543506779157333),     std::numeric_limits<int64_t>::max()};
-
+const int64_t kInt64Values[] = {std::numeric_limits<int64_t>::min(),
+                                int64_t{-8974392461363618006},
+                                int64_t{-8874367046689588135},
+                                int64_t{-8269197512118230839},
+                                int64_t{-8146091527100606733},
+                                int64_t{-7550917981466150848},
+                                int64_t{-7216590251577894337},
+                                int64_t{-6464086891160048440},
+                                int64_t{-6365616494908257190},
+                                int64_t{-6305630541365849726},
+                                int64_t{-5982222642272245453},
+                                int64_t{-5510103099058504169},
+                                int64_t{-5496838675802432701},
+                                int64_t{-4047626578868642657},
+                                int64_t{-4033755046900164544},
+                                int64_t{-3554299241457877041},
+                                int64_t{-2482258764588614470},
+                                int64_t{-1688515425526875335},
+                                int64_t{-924784137176548532},
+                                int64_t{-725316567157391307},
+                                int64_t{-439022654781092241},
+                                int64_t{-105545757668917080},
+                                int64_t{-2088319373},
+                                int64_t{-2073699916},
+                                int64_t{-1844949911},
+                                int64_t{-1831090548},
+                                int64_t{-1756711933},
+                                int64_t{-1559409497},
+                                int64_t{-1281179700},
+                                int64_t{-1211513985},
+                                int64_t{-1182371520},
+                                int64_t{-785934753},
+                                int64_t{-767480697},
+                                int64_t{-705745662},
+                                int64_t{-514362436},
+                                int64_t{-459916580},
+                                int64_t{-312328082},
+                                int64_t{-302949707},
+                                int64_t{-285499304},
+                                int64_t{-125701262},
+                                int64_t{-95139843},
+                                int64_t{-32768},
+                                int64_t{-27542},
+                                int64_t{-23600},
+                                int64_t{-18582},
+                                int64_t{-17770},
+                                int64_t{-9086},
+                                int64_t{-9010},
+                                int64_t{-8244},
+                                int64_t{-2890},
+                                int64_t{-103},
+                                int64_t{-34},
+                                int64_t{-27},
+                                int64_t{-25},
+                                int64_t{-9},
+                                int64_t{-7},
+                                int64_t{0},
+                                int64_t{2},
+                                int64_t{38},
+                                int64_t{58},
+                                int64_t{65},
+                                int64_t{93},
+                                int64_t{111},
+                                int64_t{1003},
+                                int64_t{1267},
+                                int64_t{12797},
+                                int64_t{23122},
+                                int64_t{28200},
+                                int64_t{30888},
+                                int64_t{42648848},
+                                int64_t{116836693},
+                                int64_t{263003643},
+                                int64_t{571039860},
+                                int64_t{1079398689},
+                                int64_t{1145196402},
+                                int64_t{1184846321},
+                                int64_t{1758281648},
+                                int64_t{1859991374},
+                                int64_t{1960251588},
+                                int64_t{2042443199},
+                                int64_t{296220586027987448},
+                                int64_t{1015494173071134726},
+                                int64_t{1151237951914455318},
+                                int64_t{1331941174616854174},
+                                int64_t{2022020418667972654},
+                                int64_t{2450251424374977035},
+                                int64_t{3668393562685561486},
+                                int64_t{4858229301215502171},
+                                int64_t{4919426235170669383},
+                                int64_t{5034286595330341762},
+                                int64_t{5055797915536941182},
+                                int64_t{6072389716149252074},
+                                int64_t{6185309910199801210},
+                                int64_t{6297328311011094138},
+                                int64_t{6932372858072165827},
+                                int64_t{8483640924987737210},
+                                int64_t{8663764179455849203},
+                                int64_t{8877197042645298254},
+                                int64_t{8901543506779157333},
+                                std::numeric_limits<int64_t>::max()};
 
 const uint32_t kUint32Values[] = {
-    0x00000000, 0x00000001, 0xffffffff, 0x1b09788b, 0x04c5fce8, 0xcc0de5bf,
-    0x273a798e, 0x187937a3, 0xece3af83, 0x5495a16b, 0x0b668ecc, 0x11223344,
-    0x0000009e, 0x00000043, 0x0000af73, 0x0000116b, 0x00658ecc, 0x002b3b4c,
-    0x88776655, 0x70000000, 0x07200000, 0x7fffffff, 0x56123761, 0x7fffff00,
-    0x761c4761, 0x80000000, 0x88888888, 0xa0000000, 0xdddddddd, 0xe0000000,
-    0xeeeeeeee, 0xfffffffd, 0xf0000000, 0x007fffff, 0x003fffff, 0x001fffff,
-    0x000fffff, 0x0007ffff, 0x0003ffff, 0x0001ffff, 0x0000ffff, 0x00007fff,
-    0x00003fff, 0x00001fff, 0x00000fff, 0x000007ff, 0x000003ff, 0x000001ff};
-
+    0x00000000, 0x00000001, 0xFFFFFFFF, 0x1B09788B, 0x04C5FCE8, 0xCC0DE5BF,
+    0x273A798E, 0x187937A3, 0xECE3AF83, 0x5495A16B, 0x0B668ECC, 0x11223344,
+    0x0000009E, 0x00000043, 0x0000AF73, 0x0000116B, 0x00658ECC, 0x002B3B4C,
+    0x88776655, 0x70000000, 0x07200000, 0x7FFFFFFF, 0x56123761, 0x7FFFFF00,
+    0x761C4761, 0x80000000, 0x88888888, 0xA0000000, 0xDDDDDDDD, 0xE0000000,
+    0xEEEEEEEE, 0xFFFFFFFD, 0xF0000000, 0x007FFFFF, 0x003FFFFF, 0x001FFFFF,
+    0x000FFFFF, 0x0007FFFF, 0x0003FFFF, 0x0001FFFF, 0x0000FFFF, 0x00007FFF,
+    0x00003FFF, 0x00001FFF, 0x00000FFF, 0x000007FF, 0x000003FF, 0x000001FF};
 
 struct ComparisonBinaryOperator {
   const Operator* (MachineOperatorBuilder::*constructor)();
@@ -257,6 +314,9 @@ const ComparisonBinaryOperator kComparisonBinaryOperators[] = {
     MACHINE_COMPARE_BINOP_LIST(OPCODE)
 #undef OPCODE
 };
+
+// Avoid undefined behavior on signed integer overflow.
+int32_t Shl(int32_t x, int32_t y) { return static_cast<uint32_t>(x) << y; }
 
 }  // namespace
 
@@ -298,6 +358,27 @@ TEST_F(MachineOperatorReducerTest, ChangeFloat64ToInt32WithConstant) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// ChangeFloat64ToInt64
+
+TEST_F(MachineOperatorReducerTest,
+       ChangeFloat64ToInt64WithChangeInt64ToFloat64) {
+  Node* value = Parameter(0);
+  Reduction reduction = Reduce(graph()->NewNode(
+      machine()->ChangeFloat64ToInt64(),
+      graph()->NewNode(machine()->ChangeInt64ToFloat64(), value)));
+  ASSERT_TRUE(reduction.Changed());
+  EXPECT_EQ(value, reduction.replacement());
+}
+
+TEST_F(MachineOperatorReducerTest, ChangeFloat64ToInt64WithConstant) {
+  TRACED_FOREACH(int32_t, x, kInt32Values) {
+    Reduction reduction = Reduce(graph()->NewNode(
+        machine()->ChangeFloat64ToInt64(), Float64Constant(FastI2D(x))));
+    ASSERT_TRUE(reduction.Changed());
+    EXPECT_THAT(reduction.replacement(), IsInt64Constant(x));
+  }
+}
 
 // -----------------------------------------------------------------------------
 // ChangeFloat64ToUint32
@@ -351,6 +432,27 @@ TEST_F(MachineOperatorReducerTest, ChangeInt32ToInt64WithConstant) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// ChangeInt64ToFloat64
+
+TEST_F(MachineOperatorReducerTest,
+       ChangeInt64ToFloat64WithChangeFloat64ToInt64) {
+  Node* value = Parameter(0);
+  Reduction reduction = Reduce(graph()->NewNode(
+      machine()->ChangeInt64ToFloat64(),
+      graph()->NewNode(machine()->ChangeFloat64ToInt64(), value)));
+  ASSERT_TRUE(reduction.Changed());
+  EXPECT_EQ(value, reduction.replacement());
+}
+
+TEST_F(MachineOperatorReducerTest, ChangeInt64ToFloat64WithConstant) {
+  TRACED_FOREACH(int32_t, x, kInt32Values) {
+    Reduction reduction = Reduce(
+        graph()->NewNode(machine()->ChangeInt64ToFloat64(), Int64Constant(x)));
+    ASSERT_TRUE(reduction.Changed());
+    EXPECT_THAT(reduction.replacement(), IsFloat64Constant(BitEq(FastI2D(x))));
+  }
+}
 
 // -----------------------------------------------------------------------------
 // ChangeUint32ToFloat64
@@ -476,8 +578,7 @@ TEST_F(MachineOperatorReducerTest, RoundFloat64ToInt32WithConstant) {
     Reduction reduction = Reduce(
         graph()->NewNode(machine()->RoundFloat64ToInt32(), Float64Constant(x)));
     ASSERT_TRUE(reduction.Changed());
-    EXPECT_THAT(reduction.replacement(),
-                IsInt32Constant(static_cast<int32_t>(x)));
+    EXPECT_THAT(reduction.replacement(), IsInt32Constant(DoubleToInt32(x)));
   }
 }
 
@@ -493,13 +594,13 @@ TEST_F(MachineOperatorReducerTest, Word32AndWithWord32ShlWithConstant) {
       Reduction const r1 = Reduce(graph()->NewNode(
           machine()->Word32And(),
           graph()->NewNode(machine()->Word32Shl(), p0, Int32Constant(l)),
-          Int32Constant(-1 << k)));
+          Int32Constant(Shl(-1, k))));
       ASSERT_TRUE(r1.Changed());
       EXPECT_THAT(r1.replacement(), IsWord32Shl(p0, IsInt32Constant(l)));
 
       // (-1 << K) & (x << L) => x << L
       Reduction const r2 = Reduce(graph()->NewNode(
-          machine()->Word32And(), Int32Constant(-1 << k),
+          machine()->Word32And(), Int32Constant(Shl(-1, k)),
           graph()->NewNode(machine()->Word32Shl(), p0, Int32Constant(l))));
       ASSERT_TRUE(r2.Changed());
       EXPECT_THAT(r2.replacement(), IsWord32Shl(p0, IsInt32Constant(l)));
@@ -545,16 +646,16 @@ TEST_F(MachineOperatorReducerTest, Word32AndWithInt32AddAndConstant) {
 
   TRACED_FORRANGE(int32_t, l, 1, 31) {
     TRACED_FOREACH(int32_t, k, kInt32Values) {
-      if ((k << l) == 0) continue;
+      if (Shl(k, l) == 0) continue;
       // (x + (K << L)) & (-1 << L) => (x & (-1 << L)) + (K << L)
       Reduction const r = Reduce(graph()->NewNode(
           machine()->Word32And(),
-          graph()->NewNode(machine()->Int32Add(), p0, Int32Constant(k << l)),
-          Int32Constant(-1 << l)));
+          graph()->NewNode(machine()->Int32Add(), p0, Int32Constant(Shl(k, l))),
+          Int32Constant(Shl(-1, l))));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
-                  IsInt32Add(IsWord32And(p0, IsInt32Constant(-1 << l)),
-                             IsInt32Constant(k << l)));
+                  IsInt32Add(IsWord32And(p0, IsInt32Constant(Shl(-1, l))),
+                             IsInt32Constant(Shl(k, l))));
     }
 
     Node* s1 = graph()->NewNode(machine()->Word32Shl(), p1, Int32Constant(l));
@@ -562,18 +663,18 @@ TEST_F(MachineOperatorReducerTest, Word32AndWithInt32AddAndConstant) {
     // (y << L + x) & (-1 << L) => (x & (-1 << L)) + y << L
     Reduction const r1 = Reduce(graph()->NewNode(
         machine()->Word32And(), graph()->NewNode(machine()->Int32Add(), s1, p0),
-        Int32Constant(-1 << l)));
+        Int32Constant(Shl(-1, l))));
     ASSERT_TRUE(r1.Changed());
     EXPECT_THAT(r1.replacement(),
-                IsInt32Add(IsWord32And(p0, IsInt32Constant(-1 << l)), s1));
+                IsInt32Add(IsWord32And(p0, IsInt32Constant(Shl(-1, l))), s1));
 
     // (x + y << L) & (-1 << L) => (x & (-1 << L)) + y << L
     Reduction const r2 = Reduce(graph()->NewNode(
         machine()->Word32And(), graph()->NewNode(machine()->Int32Add(), p0, s1),
-        Int32Constant(-1 << l)));
+        Int32Constant(Shl(-1, l))));
     ASSERT_TRUE(r2.Changed());
     EXPECT_THAT(r2.replacement(),
-                IsInt32Add(IsWord32And(p0, IsInt32Constant(-1 << l)), s1));
+                IsInt32Add(IsWord32And(p0, IsInt32Constant(Shl(-1, l))), s1));
   }
 }
 
@@ -583,23 +684,23 @@ TEST_F(MachineOperatorReducerTest, Word32AndWithInt32MulAndConstant) {
 
   TRACED_FORRANGE(int32_t, l, 1, 31) {
     TRACED_FOREACH(int32_t, k, kInt32Values) {
-      if ((k << l) == 0) continue;
+      if (Shl(k, l) == 0) continue;
 
       // (x * (K << L)) & (-1 << L) => x * (K << L)
       Reduction const r1 = Reduce(graph()->NewNode(
           machine()->Word32And(),
-          graph()->NewNode(machine()->Int32Mul(), p0, Int32Constant(k << l)),
-          Int32Constant(-1 << l)));
+          graph()->NewNode(machine()->Int32Mul(), p0, Int32Constant(Shl(k, l))),
+          Int32Constant(Shl(-1, l))));
       ASSERT_TRUE(r1.Changed());
-      EXPECT_THAT(r1.replacement(), IsInt32Mul(p0, IsInt32Constant(k << l)));
+      EXPECT_THAT(r1.replacement(), IsInt32Mul(p0, IsInt32Constant(Shl(k, l))));
 
       // ((K << L) * x) & (-1 << L) => x * (K << L)
       Reduction const r2 = Reduce(graph()->NewNode(
           machine()->Word32And(),
-          graph()->NewNode(machine()->Int32Mul(), Int32Constant(k << l), p0),
-          Int32Constant(-1 << l)));
+          graph()->NewNode(machine()->Int32Mul(), Int32Constant(Shl(k, l)), p0),
+          Int32Constant(Shl(-1, l))));
       ASSERT_TRUE(r2.Changed());
-      EXPECT_THAT(r2.replacement(), IsInt32Mul(p0, IsInt32Constant(k << l)));
+      EXPECT_THAT(r2.replacement(), IsInt32Mul(p0, IsInt32Constant(Shl(k, l))));
     }
   }
 }
@@ -612,31 +713,31 @@ TEST_F(MachineOperatorReducerTest,
 
   TRACED_FORRANGE(int32_t, l, 1, 31) {
     TRACED_FOREACH(int32_t, k, kInt32Values) {
-      if ((k << l) == 0) continue;
+      if (Shl(k, l) == 0) continue;
       // (y * (K << L) + x) & (-1 << L) => (x & (-1 << L)) + y * (K << L)
       Reduction const r1 = Reduce(graph()->NewNode(
           machine()->Word32And(),
           graph()->NewNode(machine()->Int32Add(),
                            graph()->NewNode(machine()->Int32Mul(), p1,
-                                            Int32Constant(k << l)),
+                                            Int32Constant(Shl(k, l))),
                            p0),
-          Int32Constant(-1 << l)));
+          Int32Constant(Shl(-1, l))));
       ASSERT_TRUE(r1.Changed());
       EXPECT_THAT(r1.replacement(),
-                  IsInt32Add(IsWord32And(p0, IsInt32Constant(-1 << l)),
-                             IsInt32Mul(p1, IsInt32Constant(k << l))));
+                  IsInt32Add(IsWord32And(p0, IsInt32Constant(Shl(-1, l))),
+                             IsInt32Mul(p1, IsInt32Constant(Shl(k, l)))));
 
       // (x + y * (K << L)) & (-1 << L) => (x & (-1 << L)) + y * (K << L)
       Reduction const r2 = Reduce(graph()->NewNode(
           machine()->Word32And(),
           graph()->NewNode(machine()->Int32Add(), p0,
                            graph()->NewNode(machine()->Int32Mul(), p1,
-                                            Int32Constant(k << l))),
-          Int32Constant(-1 << l)));
+                                            Int32Constant(Shl(k, l)))),
+          Int32Constant(Shl(-1, l))));
       ASSERT_TRUE(r2.Changed());
       EXPECT_THAT(r2.replacement(),
-                  IsInt32Add(IsWord32And(p0, IsInt32Constant(-1 << l)),
-                             IsInt32Mul(p1, IsInt32Constant(k << l))));
+                  IsInt32Add(IsWord32And(p0, IsInt32Constant(Shl(-1, l))),
+                             IsInt32Mul(p1, IsInt32Constant(Shl(k, l)))));
     }
   }
 }
@@ -881,7 +982,8 @@ TEST_F(MachineOperatorReducerTest, Word32SarWithWord32ShlAndLoad) {
 TEST_F(MachineOperatorReducerTest, Word32ShrWithWord32And) {
   Node* const p0 = Parameter(0);
   TRACED_FORRANGE(int32_t, shift, 1, 31) {
-    uint32_t mask = (1 << shift) - 1;
+    uint32_t mask =
+        base::SubWithWraparound(base::ShlWithWraparound(1, shift), 1);
     Node* node = graph()->NewNode(
         machine()->Word32Shr(),
         graph()->NewNode(machine()->Word32And(), p0, Int32Constant(mask)),
@@ -913,7 +1015,7 @@ TEST_F(MachineOperatorReducerTest, Word32ShlWithWord32Sar) {
         Int32Constant(x));
     Reduction r = Reduce(node);
     ASSERT_TRUE(r.Changed());
-    int32_t m = bit_cast<int32_t>(~((1U << x) - 1U));
+    int32_t m = static_cast<int32_t>(~((1U << x) - 1U));
     EXPECT_THAT(r.replacement(), IsWord32And(p0, IsInt32Constant(m)));
   }
 }
@@ -924,19 +1026,19 @@ TEST_F(MachineOperatorReducerTest,
   Node* const p0 = Parameter(0);
   TRACED_FOREACH(int32_t, k, kInt32Values) {
     TRACED_FORRANGE(int32_t, l, 1, 31) {
-      if ((k << l) == 0) continue;
+      if (Shl(k, l) == 0) continue;
       // (x + (K << L)) >> L << L => (x & (-1 << L)) + (K << L)
       Reduction const r = Reduce(graph()->NewNode(
           machine()->Word32Shl(),
           graph()->NewNode(machine()->Word32Sar(),
                            graph()->NewNode(machine()->Int32Add(), p0,
-                                            Int32Constant(k << l)),
+                                            Int32Constant(Shl(k, l))),
                            Int32Constant(l)),
           Int32Constant(l)));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
-                  IsInt32Add(IsWord32And(p0, IsInt32Constant(-1 << l)),
-                             IsInt32Constant(k << l)));
+                  IsInt32Add(IsWord32And(p0, IsInt32Constant(Shl(-1, l))),
+                             IsInt32Constant(Shl(k, l))));
     }
   }
 }
@@ -951,7 +1053,7 @@ TEST_F(MachineOperatorReducerTest, Word32ShlWithWord32Shr) {
         Int32Constant(x));
     Reduction r = Reduce(node);
     ASSERT_TRUE(r.Changed());
-    int32_t m = bit_cast<int32_t>(~((1U << x) - 1U));
+    int32_t m = static_cast<int32_t>(~((1U << x) - 1U));
     EXPECT_THAT(r.replacement(), IsWord32And(p0, IsInt32Constant(m)));
   }
 }
@@ -970,7 +1072,9 @@ TEST_F(MachineOperatorReducerTest, Int32SubWithConstant) {
     if (k == 0) {
       EXPECT_EQ(p0, r.replacement());
     } else {
-      EXPECT_THAT(r.replacement(), IsInt32Add(p0, IsInt32Constant(-k)));
+      EXPECT_THAT(
+          r.replacement(),
+          IsInt32Add(p0, IsInt32Constant(base::NegateWithWraparound(k))));
     }
   }
 }
@@ -1033,10 +1137,9 @@ TEST_F(MachineOperatorReducerTest, Int32DivWithConstant) {
                     IsInt32Constant(shift)));
   }
   TRACED_FORRANGE(int32_t, shift, 2, 31) {
-    Reduction const r = Reduce(graph()->NewNode(
-        machine()->Int32Div(), p0,
-        Uint32Constant(bit_cast<uint32_t, int32_t>(-1) << shift),
-        graph()->start()));
+    Reduction const r = Reduce(graph()->NewNode(machine()->Int32Div(), p0,
+                                                Int32Constant(Shl(-1, shift)),
+                                                graph()->start()));
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(
         r.replacement(),
@@ -1119,7 +1222,7 @@ TEST_F(MachineOperatorReducerTest, Uint32DivWithConstant) {
                                 Uint32Constant(1u << shift), graph()->start()));
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(),
-                IsWord32Shr(p0, IsInt32Constant(bit_cast<int32_t>(shift))));
+                IsWord32Shr(p0, IsInt32Constant(static_cast<int32_t>(shift))));
   }
 }
 
@@ -1195,11 +1298,10 @@ TEST_F(MachineOperatorReducerTest, Int32ModWithConstant) {
                                        graph()->start())))));
   }
   TRACED_FORRANGE(int32_t, shift, 1, 31) {
-    Reduction const r = Reduce(graph()->NewNode(
-        machine()->Int32Mod(), p0,
-        Uint32Constant(bit_cast<uint32_t, int32_t>(-1) << shift),
-        graph()->start()));
-    int32_t const mask = bit_cast<int32_t, uint32_t>((1U << shift) - 1);
+    Reduction const r = Reduce(graph()->NewNode(machine()->Int32Mod(), p0,
+                                                Int32Constant(Shl(-1, shift)),
+                                                graph()->start()));
+    int32_t const mask = static_cast<int32_t>((1U << shift) - 1U);
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(
         r.replacement(),
@@ -1277,7 +1379,7 @@ TEST_F(MachineOperatorReducerTest, Uint32ModWithConstant) {
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(),
                 IsWord32And(p0, IsInt32Constant(
-                                    bit_cast<int32_t>((1u << shift) - 1u))));
+                                    static_cast<int32_t>((1u << shift) - 1u))));
   }
 }
 
@@ -1575,7 +1677,7 @@ TEST_F(MachineOperatorReducerTest, Uint32LessThanWithWord32Sar) {
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(),
                 IsUint32LessThan(
-                    p0, IsInt32Constant(bit_cast<int32_t>(limit << shift))));
+                    p0, IsInt32Constant(static_cast<int32_t>(limit << shift))));
   }
 }
 
@@ -1653,7 +1755,7 @@ TEST_F(MachineOperatorReducerTest, Float64DivWithMinusOne) {
 
 TEST_F(MachineOperatorReducerTest, Float64DivWithPowerOfTwo) {
   Node* const p0 = Parameter(0);
-  TRACED_FORRANGE(uint64_t, exponent, 1, 0x7fe) {
+  TRACED_FORRANGE(uint64_t, exponent, 1, 0x7FE) {
     Double divisor = Double(exponent << Double::kPhysicalSignificandSize);
     if (divisor.value() == 1.0) continue;  // Skip x / 1.0 => x.
     Reduction r = Reduce(graph()->NewNode(machine()->Float64Div(), p0,
@@ -1857,8 +1959,9 @@ TEST_F(MachineOperatorReducerTest, Float64PowWithConstant) {
       Reduction const r = Reduce(graph()->NewNode(
           machine()->Float64Pow(), Float64Constant(x), Float64Constant(y)));
       ASSERT_TRUE(r.Changed());
-      EXPECT_THAT(r.replacement(),
-                  IsFloat64Constant(NanSensitiveDoubleEq(Pow(x, y))));
+      EXPECT_THAT(
+          r.replacement(),
+          IsFloat64Constant(NanSensitiveDoubleEq(base::ieee754::pow(x, y))));
     }
   }
 }
@@ -1946,7 +2049,7 @@ TEST_F(MachineOperatorReducerTest, Float64InsertLowWord32WithConstant) {
       EXPECT_THAT(
           r.replacement(),
           IsFloat64Constant(BitEq(bit_cast<double>(
-              (bit_cast<uint64_t>(x) & V8_UINT64_C(0xFFFFFFFF00000000)) | y))));
+              (bit_cast<uint64_t>(x) & uint64_t{0xFFFFFFFF00000000}) | y))));
     }
   }
 }
@@ -1965,7 +2068,7 @@ TEST_F(MachineOperatorReducerTest, Float64InsertHighWord32WithConstant) {
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
                   IsFloat64Constant(BitEq(bit_cast<double>(
-                      (bit_cast<uint64_t>(x) & V8_UINT64_C(0xFFFFFFFF)) |
+                      (bit_cast<uint64_t>(x) & uint64_t{0xFFFFFFFF}) |
                       (static_cast<uint64_t>(y) << 32)))));
     }
   }
@@ -1975,6 +2078,16 @@ TEST_F(MachineOperatorReducerTest, Float64InsertHighWord32WithConstant) {
 // -----------------------------------------------------------------------------
 // Float64Equal
 
+TEST_F(MachineOperatorReducerTest, Float64EqualWithConstant) {
+  TRACED_FOREACH(double, x, kFloat64Values) {
+    TRACED_FOREACH(double, y, kFloat64Values) {
+      Reduction const r = Reduce(graph()->NewNode(
+          machine()->Float64Equal(), Float64Constant(x), Float64Constant(y)));
+      ASSERT_TRUE(r.Changed());
+      EXPECT_THAT(r.replacement(), IsInt32Constant(x == y));
+    }
+  }
+}
 
 TEST_F(MachineOperatorReducerTest, Float64EqualWithFloat32Conversions) {
   Node* const p0 = Parameter(0);
@@ -2004,6 +2117,17 @@ TEST_F(MachineOperatorReducerTest, Float64EqualWithFloat32Constant) {
 // -----------------------------------------------------------------------------
 // Float64LessThan
 
+TEST_F(MachineOperatorReducerTest, Float64LessThanWithConstant) {
+  TRACED_FOREACH(double, x, kFloat64Values) {
+    TRACED_FOREACH(double, y, kFloat64Values) {
+      Reduction const r =
+          Reduce(graph()->NewNode(machine()->Float64LessThan(),
+                                  Float64Constant(x), Float64Constant(y)));
+      ASSERT_TRUE(r.Changed());
+      EXPECT_THAT(r.replacement(), IsInt32Constant(x < y));
+    }
+  }
+}
 
 TEST_F(MachineOperatorReducerTest, Float64LessThanWithFloat32Conversions) {
   Node* const p0 = Parameter(0);
@@ -2044,6 +2168,17 @@ TEST_F(MachineOperatorReducerTest, Float64LessThanWithFloat32Constant) {
 // -----------------------------------------------------------------------------
 // Float64LessThanOrEqual
 
+TEST_F(MachineOperatorReducerTest, Float64LessThanOrEqualWithConstant) {
+  TRACED_FOREACH(double, x, kFloat64Values) {
+    TRACED_FOREACH(double, y, kFloat64Values) {
+      Reduction const r =
+          Reduce(graph()->NewNode(machine()->Float64LessThanOrEqual(),
+                                  Float64Constant(x), Float64Constant(y)));
+      ASSERT_TRUE(r.Changed());
+      EXPECT_THAT(r.replacement(), IsInt32Constant(x <= y));
+    }
+  }
+}
 
 TEST_F(MachineOperatorReducerTest,
        Float64LessThanOrEqualWithFloat32Conversions) {
@@ -2092,7 +2227,7 @@ TEST_F(MachineOperatorReducerTest, Float64RoundDownWithConstant) {
     Reduction r = Reduce(graph()->NewNode(
         machine()->Float64RoundDown().placeholder(), Float64Constant(x)));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(), IsFloat64Constant(Floor(x)));
+    EXPECT_THAT(r.replacement(), IsFloat64Constant(std::floor(x)));
   }
 }
 
@@ -2110,7 +2245,7 @@ TEST_F(MachineOperatorReducerTest, StoreRepWord8WithWord32And) {
     Node* const node =
         graph()->NewNode(machine()->Store(rep), base, index,
                          graph()->NewNode(machine()->Word32And(), value,
-                                          Uint32Constant(x | 0xffu)),
+                                          Uint32Constant(x | 0xFFu)),
                          effect, control);
 
     Reduction r = Reduce(node);
@@ -2157,7 +2292,7 @@ TEST_F(MachineOperatorReducerTest, StoreRepWord16WithWord32And) {
     Node* const node =
         graph()->NewNode(machine()->Store(rep), base, index,
                          graph()->NewNode(machine()->Word32And(), value,
-                                          Uint32Constant(x | 0xffffu)),
+                                          Uint32Constant(x | 0xFFFFu)),
                          effect, control);
 
     Reduction r = Reduce(node);

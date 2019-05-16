@@ -1,26 +1,19 @@
-// test the speed of .pipe() with sockets
+// Test the speed of .pipe() with sockets
 'use strict';
 
 const common = require('../common.js');
 const PORT = common.PORT;
 
 const bench = common.createBenchmark(main, {
-  len: [102400, 1024 * 1024 * 16],
+  len: [64, 102400, 1024 * 1024 * 16],
   type: ['utf', 'asc', 'buf'],
   dur: [5]
 });
 
-var dur;
-var len;
-var type;
 var chunk;
 var encoding;
 
-function main(conf) {
-  dur = +conf.dur;
-  len = +conf.len;
-  type = conf.type;
-
+function main({ dur, len, type }) {
   switch (type) {
     case 'buf':
       chunk = Buffer.alloc(len, 'x');
@@ -37,7 +30,29 @@ function main(conf) {
       throw new Error(`invalid type: ${type}`);
   }
 
-  server();
+  const reader = new Reader();
+  const writer = new Writer();
+
+  // The actual benchmark.
+  const server = net.createServer((socket) => {
+    reader.pipe(socket);
+  });
+
+  server.listen(PORT, () => {
+    const socket = net.connect(PORT);
+    socket.on('connect', () => {
+      bench.start();
+
+      socket.pipe(writer);
+
+      setTimeout(() => {
+        const bytes = writer.received;
+        const gbits = (bytes * 8) / (1024 * 1024 * 1024);
+        bench.end(gbits);
+        process.exit(0);
+      }, dur * 1000);
+    });
+  });
 }
 
 const net = require('net');
@@ -58,7 +73,7 @@ Writer.prototype.write = function(chunk, encoding, cb) {
   return true;
 };
 
-// doesn't matter, never emits anything.
+// Doesn't matter, never emits anything.
 Writer.prototype.on = function() {};
 Writer.prototype.once = function() {};
 Writer.prototype.emit = function() {};
@@ -84,30 +99,3 @@ Reader.prototype.pipe = function(dest) {
   this.flow();
   return dest;
 };
-
-
-function server() {
-  const reader = new Reader();
-  const writer = new Writer();
-
-  // the actual benchmark.
-  const server = net.createServer(function(socket) {
-    reader.pipe(socket);
-  });
-
-  server.listen(PORT, function() {
-    const socket = net.connect(PORT);
-    socket.on('connect', function() {
-      bench.start();
-
-      socket.pipe(writer);
-
-      setTimeout(function() {
-        const bytes = writer.received;
-        const gbits = (bytes * 8) / (1024 * 1024 * 1024);
-        bench.end(gbits);
-        process.exit(0);
-      }, dur * 1000);
-    });
-  });
-}

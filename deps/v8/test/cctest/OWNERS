@@ -1,6 +1,6 @@
-per-file *-mips*=ivica.bogosavljevic@imgtec.com
-per-file *-mips*=Miran.Karic@imgtec.com
-per-file *-mips*=dusan.simicic@imgtec.com
+per-file *-mips*=arikalo@wavecomp.com
+per-file *-mips*=prudic@wavecomp.com
+per-file *-mips*=skovacevic@wavecomp.com
 per-file *-ppc*=dstence@us.ibm.com
 per-file *-ppc*=joransiu@ca.ibm.com
 per-file *-ppc*=jyan@ca.ibm.com
@@ -11,3 +11,4 @@ per-file *-s390*=joransiu@ca.ibm.com
 per-file *-s390*=jyan@ca.ibm.com
 per-file *-s390*=mbrandy@us.ibm.com
 per-file *-s390*=michael_dawson@ca.ibm.com
+per-file *profile*=alph@chromium.org

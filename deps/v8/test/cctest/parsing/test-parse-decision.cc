@@ -10,7 +10,7 @@
 #include <unordered_map>
 
 #include "include/v8.h"
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/handles-inl.h"
 #include "src/isolate.h"
 #include "src/objects-inl.h"
@@ -18,7 +18,8 @@
 
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
+namespace v8 {
+namespace internal {
 
 namespace {
 
@@ -29,12 +30,12 @@ void GetTopLevelFunctionInfo(
   // Get the v8::internal::Script object from the API v8::Script.
   // The API object 'wraps' the compiled top-level function, not the i::Script.
   Handle<JSFunction> toplevel_fn = v8::Utils::OpenHandle(*script);
-  Handle<Script> i_script =
-      handle(Script::cast(toplevel_fn->shared()->script()));
-  SharedFunctionInfo::ScriptIterator iterator(i_script);
+  SharedFunctionInfo::ScriptIterator iterator(
+      toplevel_fn->GetIsolate(), Script::cast(toplevel_fn->shared()->script()));
 
-  while (SharedFunctionInfo* shared = iterator.Next()) {
-    std::unique_ptr<char[]> name = String::cast(shared->name())->ToCString();
+  for (SharedFunctionInfo shared = iterator.Next(); !shared.is_null();
+       shared = iterator.Next()) {
+    std::unique_ptr<char[]> name = String::cast(shared->Name())->ToCString();
     is_compiled->insert(std::make_pair(name.get(), shared->is_compiled()));
   }
 }
@@ -105,3 +106,6 @@ TEST(CommaFunctionSequence) {
   DCHECK(is_compiled["b"]);
   DCHECK(is_compiled["c"]);
 }
+
+}  // namespace internal
+}  // namespace v8

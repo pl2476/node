@@ -21,13 +21,18 @@
 
 'use strict';
 const common = require('../common');
+const ArrayStream = require('../common/arraystream');
 const assert = require('assert');
 const repl = require('repl');
 
-common.globalCheck = false;
+common.expectWarning({
+  DeprecationWarning: {
+    DEP0124: 'REPLServer.rli is deprecated'
+  }
+});
 
 // Create a dummy stream that does nothing
-const stream = new common.ArrayStream();
+const stream = new ArrayStream();
 
 // 1, mostly defaults
 const r1 = repl.start({
@@ -47,7 +52,7 @@ assert.strictEqual(r1.ignoreUndefined, false);
 assert.strictEqual(r1.replMode, repl.REPL_MODE_SLOPPY);
 assert.strictEqual(r1.historySize, 30);
 
-// test r1 for backwards compact
+// Test r1 for backwards compact
 assert.strictEqual(r1.rli.input, stream);
 assert.strictEqual(r1.rli.output, stream);
 assert.strictEqual(r1.rli.input, r1.inputStream);
@@ -67,7 +72,8 @@ const r2 = repl.start({
   ignoreUndefined: true,
   eval: evaler,
   writer: writer,
-  replMode: repl.REPL_MODE_STRICT
+  replMode: repl.REPL_MODE_STRICT,
+  historySize: 50
 });
 assert.strictEqual(r2.input, stream);
 assert.strictEqual(r2.output, stream);
@@ -79,27 +85,28 @@ assert.strictEqual(r2.useGlobal, true);
 assert.strictEqual(r2.ignoreUndefined, true);
 assert.strictEqual(r2.writer, writer);
 assert.strictEqual(r2.replMode, repl.REPL_MODE_STRICT);
+assert.strictEqual(r2.historySize, 50);
 
-// test r2 for backwards compact
+// Test r2 for backwards compact
 assert.strictEqual(r2.rli.input, stream);
 assert.strictEqual(r2.rli.output, stream);
 assert.strictEqual(r2.rli.input, r2.inputStream);
 assert.strictEqual(r2.rli.output, r2.outputStream);
 assert.strictEqual(r2.rli.terminal, false);
 
-// testing out "magic" replMode
-const r3 = repl.start({
-  input: stream,
-  output: stream,
-  writer: writer,
-  replMode: repl.REPL_MODE_MAGIC,
-  historySize: 50
+// 3, breakEvalOnSigint and eval supplied together should cause a throw
+const r3 = () => repl.start({
+  breakEvalOnSigint: true,
+  eval: true
 });
 
-assert.strictEqual(r3.replMode, repl.REPL_MODE_MAGIC);
-assert.strictEqual(r3.historySize, 50);
+common.expectsError(r3, {
+  code: 'ERR_INVALID_REPL_EVAL_CONFIG',
+  type: TypeError,
+  message: 'Cannot specify both "breakEvalOnSigint" and "eval" for REPL'
+});
 
-// Verify that defaults are used when no arguments are provided
+// 4, Verify that defaults are used when no arguments are provided
 const r4 = repl.start();
 
 assert.strictEqual(r4._prompt, '> ');

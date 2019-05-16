@@ -12,6 +12,7 @@
 #include <string>
 
 #include "src/base/platform/platform.h"
+#include "src/base/v8-fallthrough.h"
 #include "src/conversions.h"
 
 namespace v8_inspector {
@@ -24,8 +25,8 @@ bool isSpaceOrNewLine(UChar c) {
   return isASCII(c) && c <= ' ' && (c == ' ' || (c <= 0xD && c >= 0x9));
 }
 
-int charactersToInteger(const UChar* characters, size_t length,
-                        bool* ok = nullptr) {
+int64_t charactersToInteger(const UChar* characters, size_t length,
+                            bool* ok = nullptr) {
   std::vector<char> buffer;
   buffer.reserve(length + 1);
   for (size_t i = 0; i < length; ++i) {
@@ -39,12 +40,9 @@ int charactersToInteger(const UChar* characters, size_t length,
 
   char* endptr;
   int64_t result =
-      static_cast<int64_t>(std::strtol(buffer.data(), &endptr, 10));
-  if (ok) {
-    *ok = !(*endptr) && result <= std::numeric_limits<int>::max() &&
-          result >= std::numeric_limits<int>::min();
-  }
-  return static_cast<int>(result);
+      static_cast<int64_t>(std::strtoll(buffer.data(), &endptr, 10));
+  if (ok) *ok = !(*endptr);
+  return result;
 }
 
 const UChar replacementCharacter = 0xFFFD;
@@ -119,13 +117,13 @@ ConversionResult convertUTF16ToUTF8(const UChar** sourceStart,
       }
     }
     // Figure out how many bytes the result will require
-    if (ch < (UChar32)0x80) {
+    if (ch < static_cast<UChar32>(0x80)) {
       bytesToWrite = 1;
-    } else if (ch < (UChar32)0x800) {
+    } else if (ch < static_cast<UChar32>(0x800)) {
       bytesToWrite = 2;
-    } else if (ch < (UChar32)0x10000) {
+    } else if (ch < static_cast<UChar32>(0x10000)) {
       bytesToWrite = 3;
-    } else if (ch < (UChar32)0x110000) {
+    } else if (ch < static_cast<UChar32>(0x110000)) {
       bytesToWrite = 4;
     } else {
       bytesToWrite = 3;
@@ -139,16 +137,19 @@ ConversionResult convertUTF16ToUTF8(const UChar** sourceStart,
       result = targetExhausted;
       break;
     }
-    switch (bytesToWrite) {  // note: everything falls through.
+    switch (bytesToWrite) {
       case 4:
         *--target = static_cast<char>((ch | byteMark) & byteMask);
         ch >>= 6;
+        V8_FALLTHROUGH;
       case 3:
         *--target = static_cast<char>((ch | byteMark) & byteMask);
         ch >>= 6;
+        V8_FALLTHROUGH;
       case 2:
         *--target = static_cast<char>((ch | byteMark) & byteMask);
         ch >>= 6;
+        V8_FALLTHROUGH;
       case 1:
         *--target = static_cast<char>(ch | firstByteMark[bytesToWrite]);
     }
@@ -165,15 +166,15 @@ ConversionResult convertUTF16ToUTF8(const UChar** sourceStart,
  * @return TRUE or FALSE
  * @stable ICU 2.8
  */
-#define U_IS_BMP(c) ((uint32_t)(c) <= 0xffff)
+#define U_IS_BMP(c) ((uint32_t)(c) <= 0xFFFF)
 
 /**
- * Is this code point a supplementary code point (U+10000..U+10ffff)?
+ * Is this code point a supplementary code point (U+010000..U+10FFFF)?
  * @param c 32-bit code point
  * @return TRUE or FALSE
  * @stable ICU 2.8
  */
-#define U_IS_SUPPLEMENTARY(c) ((uint32_t)((c)-0x10000) <= 0xfffff)
+#define U_IS_SUPPLEMENTARY(c) ((uint32_t)((c)-0x010000) <= 0xFFFFF)
 
 /**
  * Is this code point a surrogate (U+d800..U+dfff)?
@@ -181,25 +182,25 @@ ConversionResult convertUTF16ToUTF8(const UChar** sourceStart,
  * @return TRUE or FALSE
  * @stable ICU 2.4
  */
-#define U_IS_SURROGATE(c) (((c)&0xfffff800) == 0xd800)
+#define U_IS_SURROGATE(c) (((c)&0xFFFFF800) == 0xD800)
 
 /**
- * Get the lead surrogate (0xd800..0xdbff) for a
- * supplementary code point (0x10000..0x10ffff).
- * @param supplementary 32-bit code point (U+10000..U+10ffff)
- * @return lead surrogate (U+d800..U+dbff) for supplementary
+ * Get the lead surrogate (0xD800..0xDBFF) for a
+ * supplementary code point (0x010000..0x10FFFF).
+ * @param supplementary 32-bit code point (U+010000..U+10FFFF)
+ * @return lead surrogate (U+D800..U+DBFF) for supplementary
  * @stable ICU 2.4
  */
-#define U16_LEAD(supplementary) (UChar)(((supplementary) >> 10) + 0xd7c0)
+#define U16_LEAD(supplementary) (UChar)(((supplementary) >> 10) + 0xD7C0)
 
 /**
- * Get the trail surrogate (0xdc00..0xdfff) for a
- * supplementary code point (0x10000..0x10ffff).
- * @param supplementary 32-bit code point (U+10000..U+10ffff)
- * @return trail surrogate (U+dc00..U+dfff) for supplementary
+ * Get the trail surrogate (0xDC00..0xDFFF) for a
+ * supplementary code point (0x010000..0x10FFFF).
+ * @param supplementary 32-bit code point (U+010000..U+10FFFF)
+ * @return trail surrogate (U+DC00..U+DFFF) for supplementary
  * @stable ICU 2.4
  */
-#define U16_TRAIL(supplementary) (UChar)(((supplementary)&0x3ff) | 0xdc00)
+#define U16_TRAIL(supplementary) (UChar)(((supplementary)&0x3FF) | 0xDC00)
 
 // This must be called with the length pre-determined by the first byte.
 // If presented with a length > 4, this returns false.  The Unicode
@@ -213,8 +214,10 @@ static bool isLegalUTF8(const unsigned char* source, int length) {
     // Everything else falls through when "true"...
     case 4:
       if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return false;
+      V8_FALLTHROUGH;
     case 3:
       if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return false;
+      V8_FALLTHROUGH;
     case 2:
       if ((a = (*--srcptr)) > 0xBF) return false;
 
@@ -235,6 +238,7 @@ static bool isLegalUTF8(const unsigned char* source, int length) {
         default:
           if (a < 0x80) return false;
       }
+      V8_FALLTHROUGH;
 
     case 1:
       if (*source >= 0x80 && *source < 0xC2) return false;
@@ -261,18 +265,23 @@ static inline UChar32 readUTF8Sequence(const char*& sequence, size_t length) {
     case 6:
       character += static_cast<unsigned char>(*sequence++);
       character <<= 6;
+      V8_FALLTHROUGH;
     case 5:
       character += static_cast<unsigned char>(*sequence++);
       character <<= 6;
+      V8_FALLTHROUGH;
     case 4:
       character += static_cast<unsigned char>(*sequence++);
       character <<= 6;
+      V8_FALLTHROUGH;
     case 3:
       character += static_cast<unsigned char>(*sequence++);
       character <<= 6;
+      V8_FALLTHROUGH;
     case 2:
       character += static_cast<unsigned char>(*sequence++);
       character <<= 6;
+      V8_FALLTHROUGH;
     case 1:
       character += static_cast<unsigned char>(*sequence++);
   }
@@ -332,7 +341,7 @@ ConversionResult convertUTF8ToUTF16(const char** sourceStart,
       }
       *target++ = U16_LEAD(character);
       *target++ = U16_TRAIL(character);
-      orAllData = 0xffff;
+      orAllData = 0xFFFF;
     } else {
       if (strict) {
         source -= utf8SequenceLength;  // return to the start
@@ -347,7 +356,7 @@ ConversionResult convertUTF8ToUTF16(const char** sourceStart,
   *sourceStart = source;
   *targetStart = target;
 
-  if (sourceAllASCII) *sourceAllASCII = !(orAllData & ~0x7f);
+  if (sourceAllASCII) *sourceAllASCII = !(orAllData & ~0x7F);
 
   return result;
 }
@@ -361,14 +370,6 @@ static inline void putUTF8Triple(char*& buffer, UChar ch) {
 }
 
 }  // namespace
-
-String16::String16() {}
-
-String16::String16(const String16& other)
-    : m_impl(other.m_impl), hash_code(other.hash_code) {}
-
-String16::String16(String16&& other)
-    : m_impl(std::move(other.m_impl)), hash_code(other.hash_code) {}
 
 String16::String16(const UChar* characters, size_t size)
     : m_impl(characters, size) {}
@@ -384,18 +385,6 @@ String16::String16(const char* characters, size_t size) {
 }
 
 String16::String16(const std::basic_string<UChar>& impl) : m_impl(impl) {}
-
-String16& String16::operator=(const String16& other) {
-  m_impl = other.m_impl;
-  hash_code = other.hash_code;
-  return *this;
-}
-
-String16& String16::operator=(String16&& other) {
-  m_impl = std::move(other.m_impl);
-  hash_code = other.hash_code;
-  return *this;
-}
 
 // static
 String16 String16::fromInteger(int number) {
@@ -430,8 +419,17 @@ String16 String16::fromDouble(double number, int precision) {
   return String16(str.get());
 }
 
-int String16::toInteger(bool* ok) const {
+int64_t String16::toInteger64(bool* ok) const {
   return charactersToInteger(characters16(), length(), ok);
+}
+
+int String16::toInteger(bool* ok) const {
+  int64_t result = toInteger64(ok);
+  if (ok && *ok) {
+    *ok = result <= std::numeric_limits<int>::max() &&
+          result >= std::numeric_limits<int>::min();
+  }
+  return static_cast<int>(result);
 }
 
 String16 String16::stripWhiteSpace() const {
@@ -453,7 +451,7 @@ String16 String16::stripWhiteSpace() const {
   return String16(characters16() + start, end + 1 - start);
 }
 
-String16Builder::String16Builder() {}
+String16Builder::String16Builder() = default;
 
 void String16Builder::append(const String16& s) {
   m_buffer.insert(m_buffer.end(), s.characters16(),
@@ -476,22 +474,39 @@ void String16Builder::append(const char* characters, size_t length) {
 }
 
 void String16Builder::appendNumber(int number) {
-  const int kBufferSize = 11;
+  constexpr int kBufferSize = 11;
   char buffer[kBufferSize];
   int chars = v8::base::OS::SNPrintF(buffer, kBufferSize, "%d", number);
-  DCHECK_GT(kBufferSize, chars);
+  DCHECK_LE(0, chars);
   m_buffer.insert(m_buffer.end(), buffer, buffer + chars);
 }
 
 void String16Builder::appendNumber(size_t number) {
-  const int kBufferSize = 20;
+  constexpr int kBufferSize = 20;
   char buffer[kBufferSize];
 #if !defined(_WIN32) && !defined(_WIN64)
   int chars = v8::base::OS::SNPrintF(buffer, kBufferSize, "%zu", number);
 #else
   int chars = v8::base::OS::SNPrintF(buffer, kBufferSize, "%Iu", number);
 #endif
-  DCHECK_GT(kBufferSize, chars);
+  DCHECK_LE(0, chars);
+  m_buffer.insert(m_buffer.end(), buffer, buffer + chars);
+}
+
+void String16Builder::appendUnsignedAsHex(uint64_t number) {
+  constexpr int kBufferSize = 17;
+  char buffer[kBufferSize];
+  int chars =
+      v8::base::OS::SNPrintF(buffer, kBufferSize, "%016" PRIx64, number);
+  DCHECK_LE(0, chars);
+  m_buffer.insert(m_buffer.end(), buffer, buffer + chars);
+}
+
+void String16Builder::appendUnsignedAsHex(uint32_t number) {
+  constexpr int kBufferSize = 9;
+  char buffer[kBufferSize];
+  int chars = v8::base::OS::SNPrintF(buffer, kBufferSize, "%08" PRIx32, number);
+  DCHECK_LE(0, chars);
   m_buffer.insert(m_buffer.end(), buffer, buffer + chars);
 }
 
@@ -512,7 +527,7 @@ String16 String16::fromUTF8(const char* stringStart, size_t length) {
   UChar* bufferCurrent = bufferStart;
   const char* stringCurrent = stringStart;
   if (convertUTF8ToUTF16(&stringCurrent, stringStart + length, &bufferCurrent,
-                         bufferCurrent + buffer.size(), 0,
+                         bufferCurrent + buffer.size(), nullptr,
                          true) != conversionOK)
     return String16();
 
@@ -536,35 +551,33 @@ std::string String16::utf8() const {
   //    have a good chance of being able to write the string into the
   //    buffer without reallocing (say, 1.5 x length).
   if (length > std::numeric_limits<unsigned>::max() / 3) return std::string();
-  std::vector<char> bufferVector(length * 3);
-  char* buffer = bufferVector.data();
+
+  std::string output(length * 3, '\0');
   const UChar* characters = m_impl.data();
-
-  ConversionResult result =
-      convertUTF16ToUTF8(&characters, characters + length, &buffer,
-                         buffer + bufferVector.size(), false);
-  DCHECK(
-      result !=
-      targetExhausted);  // (length * 3) should be sufficient for any conversion
-
-  // Only produced from strict conversion.
-  DCHECK(result != sourceIllegal);
-
-  // Check for an unconverted high surrogate.
-  if (result == sourceExhausted) {
-    // This should be one unpaired high surrogate. Treat it the same
-    // was as an unpaired high surrogate would have been handled in
-    // the middle of a string with non-strict conversion - which is
-    // to say, simply encode it to UTF-8.
-    DCHECK((characters + 1) == (m_impl.data() + length));
-    DCHECK((*characters >= 0xD800) && (*characters <= 0xDBFF));
-    // There should be room left, since one UChar hasn't been
-    // converted.
-    DCHECK((buffer + 3) <= (buffer + bufferVector.size()));
-    putUTF8Triple(buffer, *characters);
+  const UChar* characters_end = characters + length;
+  char* buffer = &*output.begin();
+  char* buffer_end = &*output.end();
+  while (characters < characters_end) {
+    // Use strict conversion to detect unpaired surrogates.
+    ConversionResult result = convertUTF16ToUTF8(
+        &characters, characters_end, &buffer, buffer_end, /* strict= */ true);
+    DCHECK_NE(result, targetExhausted);
+    // Conversion fails when there is an unpaired surrogate.  Put
+    // replacement character (U+FFFD) instead of the unpaired
+    // surrogate.
+    if (result != conversionOK) {
+      DCHECK_LE(0xD800, *characters);
+      DCHECK_LE(*characters, 0xDFFF);
+      // There should be room left, since one UChar hasn't been
+      // converted.
+      DCHECK_LE(buffer + 3, buffer_end);
+      putUTF8Triple(buffer, replacementCharacter);
+      ++characters;
+    }
   }
 
-  return std::string(bufferVector.data(), buffer - bufferVector.data());
+  output.resize(buffer - output.data());
+  return output;
 }
 
 }  // namespace v8_inspector

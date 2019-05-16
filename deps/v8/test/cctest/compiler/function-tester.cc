@@ -4,17 +4,15 @@
 
 #include "test/cctest/compiler/function-tester.h"
 
-#include "src/ast/ast-numbering.h"
-#include "src/compilation-info.h"
-#include "src/compiler.h"
+#include "src/api-inl.h"
+#include "src/assembler.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/pipeline.h"
 #include "src/execution.h"
-#include "src/full-codegen/full-codegen.h"
 #include "src/handles.h"
 #include "src/objects-inl.h"
+#include "src/optimized-compilation-info.h"
 #include "src/parsing/parse-info.h"
-#include "src/parsing/parsing.h"
 #include "test/cctest/cctest.h"
 
 namespace v8 {
@@ -23,15 +21,17 @@ namespace compiler {
 
 FunctionTester::FunctionTester(const char* source, uint32_t flags)
     : isolate(main_isolate()),
+      canonical(isolate),
       function((FLAG_allow_natives_syntax = true, NewFunction(source))),
       flags_(flags) {
   Compile(function);
-  const uint32_t supported_flags = CompilationInfo::kInliningEnabled;
+  const uint32_t supported_flags = OptimizedCompilationInfo::kInliningEnabled;
   CHECK_EQ(0u, flags_ & ~supported_flags);
 }
 
 FunctionTester::FunctionTester(Graph* graph, int param_count)
     : isolate(main_isolate()),
+      canonical(isolate),
       function(NewFunction(BuildFunction(param_count).c_str())),
       flags_(0) {
   CompileGraph(graph);
@@ -39,12 +39,13 @@ FunctionTester::FunctionTester(Graph* graph, int param_count)
 
 FunctionTester::FunctionTester(Handle<Code> code, int param_count)
     : isolate(main_isolate()),
+      canonical(isolate),
       function((FLAG_allow_natives_syntax = true,
                 NewFunction(BuildFunction(param_count).c_str()))),
       flags_(0) {
   CHECK(!code.is_null());
   Compile(function);
-  function->ReplaceCode(*code);
+  function->set_code(*code);
 }
 
 FunctionTester::FunctionTester(Handle<Code> code) : FunctionTester(code, 0) {}
@@ -130,54 +131,33 @@ Handle<Object> FunctionTester::false_value() {
 
 Handle<JSFunction> FunctionTester::ForMachineGraph(Graph* graph,
                                                    int param_count) {
-  JSFunction* p = NULL;
+  JSFunction p;
   {  // because of the implicit handle scope of FunctionTester.
     FunctionTester f(graph, param_count);
     p = *f.function;
   }
-  return Handle<JSFunction>(p);  // allocated in outer handle scope.
+  return Handle<JSFunction>(
+      p, p->GetIsolate());  // allocated in outer handle scope.
 }
 
 Handle<JSFunction> FunctionTester::Compile(Handle<JSFunction> function) {
-  ParseInfo parse_info(handle(function->shared()));
-  CompilationInfo info(parse_info.zone(), &parse_info, function->GetIsolate(),
-                       function);
-
-  info.SetOptimizing();
-  if (flags_ & CompilationInfo::kInliningEnabled) {
-    info.MarkAsInliningEnabled();
-  }
-
-  CHECK(Compiler::Compile(function, Compiler::CLEAR_EXCEPTION));
-  if (info.shared_info()->HasBytecodeArray()) {
-    info.MarkAsDeoptimizationEnabled();
-    info.MarkAsOptimizeFromBytecode();
-  } else {
-    CHECK(Compiler::ParseAndAnalyze(&info));
-  }
-  JSFunction::EnsureLiterals(function);
-
-  Handle<Code> code = Pipeline::GenerateCodeForTesting(&info);
-  CHECK(!code.is_null());
-  info.dependencies()->Commit(code);
-  info.context()->native_context()->AddOptimizedCode(*code);
-  function->ReplaceCode(*code);
-  return function;
+  Zone zone(isolate->allocator(), ZONE_NAME);
+  return Optimize(function, &zone, isolate, flags_);
 }
 
 // Compile the given machine graph instead of the source of the function
 // and replace the JSFunction's code with the result.
 Handle<JSFunction> FunctionTester::CompileGraph(Graph* graph) {
-  ParseInfo parse_info(handle(function->shared()));
-  CompilationInfo info(parse_info.zone(), &parse_info, function->GetIsolate(),
-                       function);
+  Handle<SharedFunctionInfo> shared(function->shared(), isolate);
+  Zone zone(isolate->allocator(), ZONE_NAME);
+  OptimizedCompilationInfo info(&zone, isolate, shared, function);
 
-  CHECK(parsing::ParseFunction(info.parse_info(), info.isolate()));
-  info.SetOptimizing();
-
-  Handle<Code> code = Pipeline::GenerateCodeForTesting(&info, graph);
-  CHECK(!code.is_null());
-  function->ReplaceCode(*code);
+  auto call_descriptor = Linkage::ComputeIncoming(&zone, &info);
+  Handle<Code> code =
+      Pipeline::GenerateCodeForTesting(&info, isolate, call_descriptor, graph,
+                                       AssemblerOptions::Default(isolate))
+          .ToHandleChecked();
+  function->set_code(*code);
   return function;
 }
 

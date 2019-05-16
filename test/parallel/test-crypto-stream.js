@@ -26,26 +26,26 @@ if (!common.hasCrypto)
 
 const assert = require('assert');
 const stream = require('stream');
-const util = require('util');
 const crypto = require('crypto');
 
-// Small stream to buffer converter
-function Stream2buffer(callback) {
-  stream.Writable.call(this);
-
-  this._buffers = [];
-  this.once('finish', function() {
-    callback(null, Buffer.concat(this._buffers));
-  });
-}
-util.inherits(Stream2buffer, stream.Writable);
-
-Stream2buffer.prototype._write = function(data, encodeing, done) {
-  this._buffers.push(data);
-  return done(null);
-};
-
 if (!common.hasFipsCrypto) {
+  // Small stream to buffer converter
+  class Stream2buffer extends stream.Writable {
+    constructor(callback) {
+      super();
+
+      this._buffers = [];
+      this.once('finish', function() {
+        callback(null, Buffer.concat(this._buffers));
+      });
+    }
+
+    _write(data, encoding, done) {
+      this._buffers.push(data);
+      return done(null);
+    }
+  }
+
   // Create an md5 hash of "Hallo world"
   const hasher1 = crypto.createHash('md5');
   hasher1.pipe(new Stream2buffer(common.mustCall(function end(err, hash) {
@@ -71,8 +71,11 @@ const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
 const decipher = crypto.createDecipheriv('aes-128-cbc', badkey, iv);
 
 cipher.pipe(decipher)
-  .on('error', common.mustCall(function end(err) {
-    assert(/bad decrypt/.test(err));
+  .on('error', common.expectsError({
+    message: /bad decrypt/,
+    function: 'EVP_DecryptFinal_ex',
+    library: 'digital envelope routines',
+    reason: 'bad decrypt',
   }));
 
 cipher.end('Papaya!');  // Should not cause an unhandled exception.

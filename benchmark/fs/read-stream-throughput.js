@@ -1,25 +1,27 @@
-// test the throughput of the fs.WriteStream class.
+// Test the throughput of the fs.WriteStream class.
 'use strict';
 
 const path = require('path');
 const common = require('../common.js');
-const filename = path.resolve(__dirname, '.removeme-benchmark-garbage');
+const filename = path.resolve(process.env.NODE_TMPDIR || __dirname,
+                              `.removeme-benchmark-garbage-${process.pid}`);
 const fs = require('fs');
-const filesize = 1000 * 1024 * 1024;
 const assert = require('assert');
 
-var type, encoding, size;
+let encodingType, encoding, size, filesize;
 
 const bench = common.createBenchmark(main, {
-  type: ['buf', 'asc', 'utf'],
+  encodingType: ['buf', 'asc', 'utf'],
+  filesize: [1000 * 1024 * 1024],
   size: [1024, 4096, 65535, 1024 * 1024]
 });
 
 function main(conf) {
-  type = conf.type;
-  size = +conf.size;
+  encodingType = conf.encodingType;
+  size = conf.size;
+  filesize = conf.filesize;
 
-  switch (type) {
+  switch (encodingType) {
     case 'buf':
       encoding = null;
       break;
@@ -30,10 +32,10 @@ function main(conf) {
       encoding = 'utf8';
       break;
     default:
-      throw new Error('invalid type');
+      throw new Error(`invalid encodingType: ${encodingType}`);
   }
 
-  makeFile(runTest);
+  makeFile();
 }
 
 function runTest() {
@@ -43,17 +45,17 @@ function runTest() {
     encoding: encoding
   });
 
-  rs.on('open', function() {
+  rs.on('open', () => {
     bench.start();
   });
 
   var bytes = 0;
-  rs.on('data', function(chunk) {
+  rs.on('data', (chunk) => {
     bytes += chunk.length;
   });
 
-  rs.on('end', function() {
-    try { fs.unlinkSync(filename); } catch (e) {}
+  rs.on('end', () => {
+    try { fs.unlinkSync(filename); } catch {}
     // MB/sec
     bench.end(bytes / (1024 * 1024));
   });
@@ -72,7 +74,7 @@ function makeFile() {
     buf.fill('x');
   }
 
-  try { fs.unlinkSync(filename); } catch (e) {}
+  try { fs.unlinkSync(filename); } catch {}
   var w = 1024;
   const ws = fs.createWriteStream(filename);
   ws.on('close', runTest);

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "test/unittests/compiler/instruction-selector-unittest.h"
+#include "test/unittests/compiler/backend/instruction-selector-unittest.h"
 
 #include "src/compiler/node-matchers.h"
 #include "src/objects-inl.h"
@@ -103,9 +103,9 @@ TEST_P(InstructionSelectorChangeInt32ToInt64Test, ChangeInt32ToInt64WithLoad) {
   EXPECT_EQ(extension.expected_opcode, s[0]->arch_opcode());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorChangeInt32ToInt64Test,
-                        ::testing::ValuesIn(kLoadWithToInt64Extensions));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorChangeInt32ToInt64Test,
+                         ::testing::ValuesIn(kLoadWithToInt64Extensions));
 
 // -----------------------------------------------------------------------------
 // Loads and stores
@@ -171,11 +171,9 @@ TEST_P(InstructionSelectorMemoryAccessTest, StoreWithParameters) {
   EXPECT_EQ(0U, s[0]->OutputCount());
 }
 
-
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorMemoryAccessTest,
-                        ::testing::ValuesIn(kMemoryAccesses));
-
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorMemoryAccessTest,
+                         ::testing::ValuesIn(kMemoryAccesses));
 
 // -----------------------------------------------------------------------------
 // ChangeUint32ToUint64.
@@ -237,10 +235,9 @@ TEST_P(InstructionSelectorChangeUint32ToUint64Test, ChangeUint32ToUint64) {
   ASSERT_EQ(1U, s.size());
 }
 
-
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorChangeUint32ToUint64Test,
-                        ::testing::ValuesIn(kWord32BinaryOperations));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorChangeUint32ToUint64Test,
+                         ::testing::ValuesIn(kWord32BinaryOperations));
 
 // -----------------------------------------------------------------------------
 // CanElideChangeUint32ToUint64
@@ -320,9 +317,9 @@ TEST_P(InstructionSelectorElidedChangeUint32ToUint64Test, Parameter) {
   EXPECT_EQ(1U, s[0]->OutputCount());
 }
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
-                        InstructionSelectorElidedChangeUint32ToUint64Test,
-                        ::testing::ValuesIn(kCanElideChangeUint32ToUint64));
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorElidedChangeUint32ToUint64Test,
+                         ::testing::ValuesIn(kCanElideChangeUint32ToUint64));
 
 // ChangeUint32ToUint64AfterLoad
 TEST_F(InstructionSelectorTest, ChangeUint32ToUint64AfterLoad) {
@@ -1205,9 +1202,113 @@ TEST_F(InstructionSelectorTest, Int32Shl4BecomesLea) {
   EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
 }
 
-
 // -----------------------------------------------------------------------------
 // Binops with a memory operand.
+
+TEST_F(InstructionSelectorTest, LoadCmp32) {
+  {
+    // Word32Equal(Load[Int8](p0, p1), Int32Constant(0)) -> cmpb [p0,p1], 0
+    StreamBuilder m(this, MachineType::Int32(), MachineType::Int64(),
+                    MachineType::Int64());
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(
+        m.Word32Equal(m.Load(MachineType::Int8(), p0, p1), m.Int32Constant(0)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kX64Cmp8, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_MR1, s[0]->addressing_mode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_TRUE(s[0]->InputAt(2)->IsImmediate());
+  }
+  {
+    // Word32Equal(Load[Uint8](p0, p1), Int32Constant(0)) -> cmpb [p0,p1], 0
+    StreamBuilder m(this, MachineType::Int32(), MachineType::Int64(),
+                    MachineType::Int64());
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(m.Word32Equal(m.Load(MachineType::Uint8(), p0, p1),
+                           m.Int32Constant(0)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kX64Cmp8, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_MR1, s[0]->addressing_mode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_TRUE(s[0]->InputAt(2)->IsImmediate());
+  }
+  {
+    // Word32Equal(Load[Int16](p0, p1), Int32Constant(0)) -> cmpw [p0,p1], 0
+    StreamBuilder m(this, MachineType::Int32(), MachineType::Int64(),
+                    MachineType::Int64());
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(m.Word32Equal(m.Load(MachineType::Int16(), p0, p1),
+                           m.Int32Constant(0)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kX64Cmp16, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_MR1, s[0]->addressing_mode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_TRUE(s[0]->InputAt(2)->IsImmediate());
+  }
+  {
+    // Word32Equal(Load[Uint16](p0, p1), Int32Constant(0)) -> cmpw [p0,p1], 0
+    StreamBuilder m(this, MachineType::Int32(), MachineType::Int64(),
+                    MachineType::Int64());
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(m.Word32Equal(m.Load(MachineType::Uint16(), p0, p1),
+                           m.Int32Constant(0)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kX64Cmp16, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_MR1, s[0]->addressing_mode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_TRUE(s[0]->InputAt(2)->IsImmediate());
+  }
+  {
+    // Word32Equal(Load[Int32](p0, p1), Int32Constant(0)) -> cmpl [p0,p1], 0
+    StreamBuilder m(this, MachineType::Int32(), MachineType::Int64(),
+                    MachineType::Int64());
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(m.Word32Equal(m.Load(MachineType::Int32(), p0, p1),
+                           m.Int32Constant(0)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kX64Cmp32, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_MR1, s[0]->addressing_mode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_TRUE(s[0]->InputAt(2)->IsImmediate());
+  }
+  {
+    // Word32Equal(Load[Uint32](p0, p1), Int32Constant(0)) -> cmpl [p0,p1], 0
+    StreamBuilder m(this, MachineType::Int32(), MachineType::Int64(),
+                    MachineType::Int64());
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(m.Word32Equal(m.Load(MachineType::Uint32(), p0, p1),
+                           m.Int32Constant(0)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kX64Cmp32, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_MR1, s[0]->addressing_mode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_TRUE(s[0]->InputAt(2)->IsImmediate());
+  }
+}
 
 TEST_F(InstructionSelectorTest, LoadAnd32) {
   StreamBuilder m(this, MachineType::Int32(), MachineType::Int32(),
@@ -1463,25 +1564,6 @@ TEST_F(InstructionSelectorTest, Float64BinopArithmetic) {
 // Miscellaneous.
 
 
-TEST_F(InstructionSelectorTest, Uint64LessThanWithLoadAndLoadStackPointer) {
-  StreamBuilder m(this, MachineType::Bool());
-  Node* const sl = m.Load(
-      MachineType::Pointer(),
-      m.ExternalConstant(ExternalReference::address_of_stack_limit(isolate())));
-  Node* const sp = m.LoadStackPointer();
-  Node* const n = m.Uint64LessThan(sl, sp);
-  m.Return(n);
-  Stream s = m.Build();
-  ASSERT_EQ(1U, s.size());
-  EXPECT_EQ(kX64StackCheck, s[0]->arch_opcode());
-  ASSERT_EQ(0U, s[0]->InputCount());
-  ASSERT_EQ(1U, s[0]->OutputCount());
-  EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->Output()));
-  EXPECT_EQ(kFlags_set, s[0]->flags_mode());
-  EXPECT_EQ(kUnsignedGreaterThan, s[0]->flags_condition());
-}
-
-
 TEST_F(InstructionSelectorTest, Word64ShlWithChangeInt32ToInt64) {
   TRACED_FORRANGE(int64_t, x, 32, 63) {
     StreamBuilder m(this, MachineType::Int64(), MachineType::Int32());
@@ -1519,12 +1601,11 @@ TEST_F(InstructionSelectorTest, Word64ShlWithChangeUint32ToUint64) {
   }
 }
 
-
-TEST_F(InstructionSelectorTest, Word32AndWith0xff) {
+TEST_F(InstructionSelectorTest, Word32AndWith0xFF) {
   {
     StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
     Node* const p0 = m.Parameter(0);
-    Node* const n = m.Word32And(p0, m.Int32Constant(0xff));
+    Node* const n = m.Word32And(p0, m.Int32Constant(0xFF));
     m.Return(n);
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
@@ -1537,7 +1618,7 @@ TEST_F(InstructionSelectorTest, Word32AndWith0xff) {
   {
     StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
     Node* const p0 = m.Parameter(0);
-    Node* const n = m.Word32And(m.Int32Constant(0xff), p0);
+    Node* const n = m.Word32And(m.Int32Constant(0xFF), p0);
     m.Return(n);
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
@@ -1549,12 +1630,11 @@ TEST_F(InstructionSelectorTest, Word32AndWith0xff) {
   }
 }
 
-
-TEST_F(InstructionSelectorTest, Word32AndWith0xffff) {
+TEST_F(InstructionSelectorTest, Word32AndWith0xFFFF) {
   {
     StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
     Node* const p0 = m.Parameter(0);
-    Node* const n = m.Word32And(p0, m.Int32Constant(0xffff));
+    Node* const n = m.Word32And(p0, m.Int32Constant(0xFFFF));
     m.Return(n);
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
@@ -1567,7 +1647,7 @@ TEST_F(InstructionSelectorTest, Word32AndWith0xffff) {
   {
     StreamBuilder m(this, MachineType::Int32(), MachineType::Int32());
     Node* const p0 = m.Parameter(0);
-    Node* const n = m.Word32And(m.Int32Constant(0xffff), p0);
+    Node* const n = m.Word32And(m.Int32Constant(0xFFFF), p0);
     m.Return(n);
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
@@ -1641,6 +1721,67 @@ TEST_F(InstructionSelectorTest, LoadAndWord64ShiftRight32) {
     ASSERT_EQ(1U, s[0]->OutputCount());
     EXPECT_EQ(s.ToVreg(shift), s.ToVreg(s[0]->Output()));
   }
+}
+
+TEST_F(InstructionSelectorTest, SpeculationFence) {
+  StreamBuilder m(this, MachineType::Int32());
+  m.SpeculationFence();
+  m.Return(m.Int32Constant(0));
+  Stream s = m.Build();
+  ASSERT_EQ(1U, s.size());
+  EXPECT_EQ(kLFence, s[0]->arch_opcode());
+}
+
+TEST_F(InstructionSelectorTest, StackCheck0) {
+  ExternalReference js_stack_limit =
+      ExternalReference::Create(isolate()->stack_guard()->address_of_jslimit());
+  StreamBuilder m(this, MachineType::Int32());
+  Node* const sp = m.LoadStackPointer();
+  Node* const stack_limit =
+      m.Load(MachineType::Pointer(), m.ExternalConstant(js_stack_limit));
+  Node* const interrupt = m.UintPtrLessThan(sp, stack_limit);
+
+  RawMachineLabel if_true, if_false;
+  m.Branch(interrupt, &if_true, &if_false);
+
+  m.Bind(&if_true);
+  m.Return(m.Int32Constant(1));
+
+  m.Bind(&if_false);
+  m.Return(m.Int32Constant(0));
+
+  Stream s = m.Build();
+
+  ASSERT_EQ(1U, s.size());
+  EXPECT_EQ(kX64Cmp, s[0]->arch_opcode());
+  EXPECT_EQ(4U, s[0]->InputCount());
+  EXPECT_EQ(0U, s[0]->OutputCount());
+}
+
+TEST_F(InstructionSelectorTest, StackCheck1) {
+  ExternalReference js_stack_limit =
+      ExternalReference::Create(isolate()->stack_guard()->address_of_jslimit());
+  StreamBuilder m(this, MachineType::Int32());
+  Node* const sp = m.LoadStackPointer();
+  Node* const stack_limit =
+      m.Load(MachineType::Pointer(), m.ExternalConstant(js_stack_limit));
+  Node* const sp_within_limit = m.UintPtrLessThan(stack_limit, sp);
+
+  RawMachineLabel if_true, if_false;
+  m.Branch(sp_within_limit, &if_true, &if_false);
+
+  m.Bind(&if_true);
+  m.Return(m.Int32Constant(1));
+
+  m.Bind(&if_false);
+  m.Return(m.Int32Constant(0));
+
+  Stream s = m.Build();
+
+  ASSERT_EQ(1U, s.size());
+  EXPECT_EQ(kX64StackCheck, s[0]->arch_opcode());
+  EXPECT_EQ(2U, s[0]->InputCount());
+  EXPECT_EQ(0U, s[0]->OutputCount());
 }
 
 }  // namespace compiler

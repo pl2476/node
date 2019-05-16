@@ -104,7 +104,7 @@ TEST(BinopShiftRightLogical) {
   FunctionTester T("(function(a,b) { return a >>> b; })");
 
   T.CheckCall(4, 8, 1);
-  T.CheckCall(0x7ffffffc, -8, 1);
+  T.CheckCall(0x7FFFFFFC, -8, 1);
   T.CheckCall(T.Val(4), T.Val("8"), T.Val(1));
   T.CheckCall(T.Val(4), T.Val(8), T.Val("1"));
 }
@@ -387,7 +387,6 @@ TEST(PropertyKeyedDelete) {
 
 
 TEST(GlobalLoad) {
-  FLAG_stress_fullcodegen = false;
   FunctionTester T("(function() { return g; })");
 
   T.CheckThrows(T.undefined(), T.undefined());
@@ -397,7 +396,6 @@ TEST(GlobalLoad) {
 
 
 TEST(GlobalStoreStrict) {
-  FLAG_stress_fullcodegen = false;
   FunctionTester T("(function(a,b) { 'use strict'; g = a + b; return g; })");
 
   T.CheckThrows(T.Val(22), T.Val(11));

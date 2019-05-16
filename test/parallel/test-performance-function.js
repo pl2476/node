@@ -10,21 +10,17 @@ const {
 
 {
   // Intentional non-op. Do not wrap in common.mustCall();
-  const n = performance.timerify(() => {});
-  n();
-  const entries = performance.getEntriesByType('function');
-  assert.strictEqual(entries.length, 0);
+  const n = performance.timerify(function noop() {});
 
   const obs = new PerformanceObserver(common.mustCall((list) => {
     const entries = list.getEntries();
     const entry = entries[0];
     assert(entry);
-    assert.strictEqual(entry.name, 'performance.timerify');
+    assert.strictEqual(entry.name, 'noop');
     assert.strictEqual(entry.entryType, 'function');
     assert.strictEqual(typeof entry.duration, 'number');
     assert.strictEqual(typeof entry.startTime, 'number');
     obs.disconnect();
-    performance.clearFunctions();
   }));
   obs.observe({ entryTypes: ['function'] });
   n();
@@ -39,17 +35,12 @@ const {
     throw new Error('test');
   });
   assert.throws(() => n(), /^Error: test$/);
-  const entries = performance.getEntriesByType('function');
-  assert.strictEqual(entries.length, 0);
   obs.disconnect();
 }
 
 {
   class N {}
   const n = performance.timerify(N);
-  new n();
-  const entries = performance.getEntriesByType('function');
-  assert.strictEqual(entries.length, 0);
 
   const obs = new PerformanceObserver(common.mustCall((list) => {
     const entries = list.getEntries();
@@ -62,7 +53,6 @@ const {
     assert.strictEqual(typeof entry.duration, 'number');
     assert.strictEqual(typeof entry.startTime, 'number');
     obs.disconnect();
-    performance.clearFunctions();
   }));
   obs.observe({ entryTypes: ['function'] });
 
@@ -70,13 +60,14 @@ const {
 }
 
 {
-  [1, {}, [], null, undefined, Infinity].forEach((i) => {
-    assert.throws(() => performance.timerify(i),
-                  common.expectsError({
-                    code: 'ERR_INVALID_ARG_TYPE',
-                    type: TypeError,
-                    message: 'The "fn" argument must be of type Function'
-                  }));
+  [1, {}, [], null, undefined, Infinity].forEach((input) => {
+    common.expectsError(() => performance.timerify(input),
+                        {
+                          code: 'ERR_INVALID_ARG_TYPE',
+                          type: TypeError,
+                          message: 'The "fn" argument must be of type ' +
+                                   `Function. Received type ${typeof input}`
+                        });
   });
 }
 

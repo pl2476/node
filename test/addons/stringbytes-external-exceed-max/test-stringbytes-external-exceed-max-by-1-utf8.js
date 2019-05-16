@@ -10,7 +10,7 @@ const assert = require('assert');
 
 // v8 fails silently if string length > v8::String::kMaxLength
 // v8::String::kMaxLength defined in v8.h
-const kStringMaxLength = process.binding('buffer').kStringMaxLength;
+const kStringMaxLength = require('buffer').constants.MAX_STRING_LENGTH;
 
 let buf;
 try {
@@ -25,10 +25,29 @@ try {
 if (!binding.ensureAllocation(2 * kStringMaxLength))
   common.skip(skipMessage);
 
-assert.throws(function() {
-  buf.toString();
-}, /"toString\(\)" failed|Array buffer allocation failed/);
+const stringLengthHex = kStringMaxLength.toString(16);
 
 assert.throws(function() {
+  buf.toString();
+}, function(e) {
+  if (e.message !== 'Array buffer allocation failed') {
+    common.expectsError({
+      message: `Cannot create a string longer than 0x${stringLengthHex} ` +
+               'characters',
+      code: 'ERR_STRING_TOO_LONG',
+      type: Error
+    })(e);
+    return true;
+  } else {
+    return true;
+  }
+});
+
+common.expectsError(function() {
   buf.toString('utf8');
-}, /"toString\(\)" failed/);
+}, {
+  message: `Cannot create a string longer than 0x${stringLengthHex} ` +
+           'characters',
+  code: 'ERR_STRING_TOO_LONG',
+  type: Error
+});

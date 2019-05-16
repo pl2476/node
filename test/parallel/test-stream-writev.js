@@ -45,7 +45,7 @@ function run() {
 }
 
 function test(decode, uncork, multi, next) {
-  console.log('# decode=%j uncork=%j multi=%j', decode, uncork, multi);
+  console.log(`# decode=${decode} uncork=${uncork} multi=${multi}`);
   let counter = 0;
   let expectCount = 0;
   function cnt(msg) {
@@ -113,9 +113,9 @@ function test(decode, uncork, multi, next) {
   w.end(cnt('end'));
 
   w.on('finish', function() {
-    // make sure finish comes after all the write cb
+    // Make sure finish comes after all the write cb
     cnt('finish')();
-    assert.deepStrictEqual(expectChunks, actualChunks);
+    assert.deepStrictEqual(actualChunks, expectChunks);
     next();
   });
 }

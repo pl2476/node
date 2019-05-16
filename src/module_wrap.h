@@ -3,51 +3,84 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include <map>
+#include <unordered_map>
 #include <string>
 #include <vector>
 #include "node_url.h"
-#include "base-object.h"
-#include "base-object-inl.h"
+#include "base_object-inl.h"
 
 namespace node {
 namespace loader {
 
-node::url::URL Resolve(std::string specifier, node::url::URL* base,
-                       bool read_pkg_json = false);
+enum ScriptType : int {
+  kScript,
+  kModule,
+  kFunction,
+};
+
+enum HostDefinedOptions : int {
+  kType = 8,
+  kID = 9,
+  kLength = 10,
+};
 
 class ModuleWrap : public BaseObject {
  public:
-  static const std::string EXTENSIONS[];
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
-                         v8::Local<v8::Context> context);
+                         v8::Local<v8::Context> context,
+                         void* priv);
+  static void HostInitializeImportMetaObjectCallback(
+      v8::Local<v8::Context> context,
+      v8::Local<v8::Module> module,
+      v8::Local<v8::Object> meta);
+
+  void MemoryInfo(MemoryTracker* tracker) const override {
+    tracker->TrackField("url", url_);
+    tracker->TrackField("resolve_cache", resolve_cache_);
+  }
+
+  inline uint32_t id() { return id_; }
+  static ModuleWrap* GetFromID(node::Environment*, uint32_t id);
+
+  SET_MEMORY_INFO_NAME(ModuleWrap)
+  SET_SELF_SIZE(ModuleWrap)
 
  private:
-  ModuleWrap(node::Environment* env,
+  ModuleWrap(Environment* env,
              v8::Local<v8::Object> object,
              v8::Local<v8::Module> module,
              v8::Local<v8::String> url);
-  ~ModuleWrap();
+  ~ModuleWrap() override;
 
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Link(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Instantiate(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Evaluate(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void GetUrl(v8::Local<v8::String> property,
-                     const v8::PropertyCallbackInfo<v8::Value>& info);
+  static void Namespace(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetStatus(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetError(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetStaticDependencySpecifiers(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+
   static void Resolve(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetPackageType(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SetImportModuleDynamicallyCallback(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SetInitializeImportMetaObjectCallback(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
   static v8::MaybeLocal<v8::Module> ResolveCallback(
       v8::Local<v8::Context> context,
       v8::Local<v8::String> specifier,
       v8::Local<v8::Module> referrer);
+  static ModuleWrap* GetFromModule(node::Environment*, v8::Local<v8::Module>);
 
-  v8::Persistent<v8::Module> module_;
-  v8::Persistent<v8::String> url_;
+  v8::Global<v8::Module> module_;
+  v8::Global<v8::String> url_;
   bool linked_ = false;
-  std::map<std::string, v8::Persistent<v8::Promise>*> resolve_cache_;
-
-  static std::map<int, std::vector<ModuleWrap*>*> module_map_;
+  std::unordered_map<std::string, v8::Global<v8::Promise>> resolve_cache_;
+  v8::Global<v8::Context> context_;
+  uint32_t id_;
 };
 
 }  // namespace loader

@@ -7,16 +7,16 @@ const { spawn } = require('child_process');
 if (process.argv[2] === 'child') {
   // sub-process
   const server = createServer(common.mustCall((_, res) => res.end('h')));
-  server.listen(0, common.mustCall((s) => {
+  server.listen(0, common.mustCall(() => {
     const rr = get({ port: server.address().port }, common.mustCall(() => {
       // This bad input (0) should abort the parser and the process
       rr.parser.consume(0);
-      // This line should be unreachanble.
+      // This line should be unreachable.
       assert.fail('this should be unreachable');
     }));
   }));
 } else {
-  // super-proces
+  // super-process
   const child = spawn(process.execPath, [__filename, 'child']);
   child.stdout.on('data', common.mustNotCall());
 

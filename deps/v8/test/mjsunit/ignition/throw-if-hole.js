@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --opt --allow-natives-syntax --no-always-opt --no-stress-fullcodegen
+// Flags: --opt --allow-natives-syntax --no-always-opt
 
 function f(b) {
  if (b == 1) {
@@ -16,5 +16,5 @@ f(0);
 f(0);
 assertOptimized(f);
 // Check that hole checks are handled correctly in optimized code.
-assertThrowsEquals(() => {f(1)}, ReferenceError());
+assertThrows(() => {f(1)}, ReferenceError);
 assertOptimized(f);

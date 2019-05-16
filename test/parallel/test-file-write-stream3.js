@@ -25,8 +25,10 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 
+const tmpdir = require('../common/tmpdir');
 
-const filepath = path.join(common.tmpDir, 'write_pos.txt');
+
+const filepath = path.join(tmpdir.path, 'write_pos.txt');
 
 
 const cb_expected = 'write open close write open close write open close ';
@@ -42,8 +44,8 @@ const fileDataExpected_3 = 'abcdefghij\u2026\u2026qrstuvwxyz';
 process.on('exit', function() {
   if (cb_occurred !== cb_expected) {
     console.log('  Test callback events missing or out of order:');
-    console.log('    expected: %j', cb_expected);
-    console.log('    occurred: %j', cb_occurred);
+    console.log(`    expected: ${cb_expected}`);
+    console.log(`    occurred: ${cb_occurred}`);
     assert.strictEqual(
       cb_occurred, cb_expected,
       `events missing or out of order: "${cb_occurred}" !== "${cb_expected}"`);
@@ -51,7 +53,7 @@ process.on('exit', function() {
 });
 
 
-common.refreshTmpDir();
+tmpdir.refresh();
 
 
 function run_test_1() {
@@ -159,6 +161,7 @@ function run_test_3() {
     assert.strictEqual(fileData, fileDataExpected_3);
 
     run_test_4();
+    run_test_5();
   });
 
   file.on('error', function(err) {
@@ -176,15 +179,31 @@ function run_test_3() {
 
 const run_test_4 = common.mustCall(function() {
   //  Error: start must be >= zero
-  const block = () => {
+  const fn = () => {
     fs.createWriteStream(filepath, { start: -5, flags: 'r+' });
   };
   const err = {
-    code: 'ERR_VALUE_OUT_OF_RANGE',
-    message: 'The value of "start" must be >= 0. Received "{start: -5}"',
+    code: 'ERR_OUT_OF_RANGE',
+    message: 'The value of "start" is out of range. ' +
+             'It must be >= 0 and <= 2 ** 53 - 1. Received -5',
     type: RangeError
   };
-  common.expectsError(block, err);
+  common.expectsError(fn, err);
+});
+
+
+const run_test_5 = common.mustCall(function() {
+  //  Error: start must be <= 2 ** 53 - 1
+  const fn = () => {
+    fs.createWriteStream(filepath, { start: 2 ** 53, flags: 'r+' });
+  };
+  const err = {
+    code: 'ERR_OUT_OF_RANGE',
+    message: 'The value of "start" is out of range. It must be ' +
+             '>= 0 and <= 2 ** 53 - 1. Received 9_007_199_254_740_992',
+    type: RangeError
+  };
+  common.expectsError(fn, err);
 });
 
 run_test_1();

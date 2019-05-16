@@ -14,14 +14,15 @@ void ReportUncaughtException(v8::Isolate* isolate,
                              const v8::TryCatch& try_catch) {
   CHECK(try_catch.HasCaught());
   v8::HandleScope handle_scope(isolate);
-  std::string message = *v8::String::Utf8Value(try_catch.Message()->Get());
+  std::string message =
+      *v8::String::Utf8Value(isolate, try_catch.Message()->Get());
   int line = try_catch.Message()
                  ->GetLineNumber(isolate->GetCurrentContext())
                  .FromJust();
-  std::string source_line =
-      *v8::String::Utf8Value(try_catch.Message()
-                                 ->GetSourceLine(isolate->GetCurrentContext())
-                                 .ToLocalChecked());
+  std::string source_line = *v8::String::Utf8Value(
+      isolate, try_catch.Message()
+                   ->GetSourceLine(isolate->GetCurrentContext())
+                   .ToLocalChecked());
   fprintf(stderr, "Unhandle exception: %s @%s[%d]\n", message.data(),
           source_line.data(), line);
 }
@@ -40,7 +41,8 @@ TaskRunner::TaskRunner(IsolateData::SetupGlobalTasks setup_global_tasks,
       ready_semaphore_(ready_semaphore),
       data_(nullptr),
       process_queue_semaphore_(0),
-      nested_loop_count_(0) {
+      nested_loop_count_(0),
+      is_terminated_(0) {
   Start();
 }
 
@@ -55,7 +57,7 @@ void TaskRunner::Run() {
 
 void TaskRunner::RunMessageLoop(bool only_protocol) {
   int loop_number = ++nested_loop_count_;
-  while (nested_loop_count_ == loop_number && !is_terminated_.Value()) {
+  while (nested_loop_count_ == loop_number && !is_terminated_) {
     TaskRunner::Task* task = GetNext(only_protocol);
     if (!task) return;
     v8::Isolate::Scope isolate_scope(isolate());
@@ -77,7 +79,7 @@ void TaskRunner::RunMessageLoop(bool only_protocol) {
 }
 
 void TaskRunner::QuitMessageLoop() {
-  DCHECK(nested_loop_count_ > 0);
+  DCHECK_LT(0, nested_loop_count_);
   --nested_loop_count_;
 }
 
@@ -87,13 +89,13 @@ void TaskRunner::Append(Task* task) {
 }
 
 void TaskRunner::Terminate() {
-  is_terminated_.Increment(1);
+  is_terminated_++;
   process_queue_semaphore_.Signal();
 }
 
 TaskRunner::Task* TaskRunner::GetNext(bool only_protocol) {
   for (;;) {
-    if (is_terminated_.Value()) return nullptr;
+    if (is_terminated_) return nullptr;
     if (only_protocol) {
       Task* task = nullptr;
       if (queue_.Dequeue(&task)) {

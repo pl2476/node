@@ -62,14 +62,14 @@ server.listen(0, function() {
         break;
 
       default:
+        // Write to a torn down client should RESET or ABORT
         assert.strictEqual(er.code,
-                           'ECONNRESET',
-                           'Write to a torn down client should RESET or ABORT');
+                           'ECONNRESET');
         break;
     }
 
-    assert.strictEqual(req.output.length, 0);
-    assert.strictEqual(req.outputEncodings.length, 0);
+
+    assert.strictEqual(req.outputData.length, 0);
     server.close();
   }));
 
