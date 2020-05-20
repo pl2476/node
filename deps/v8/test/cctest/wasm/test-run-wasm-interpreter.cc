@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include "src/assembler-inl.h"
+#include "src/codegen/assembler-inl.h"
 #include "src/wasm/wasm-interpreter.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/compiler/value-helper.h"
@@ -220,7 +220,7 @@ TEST(Run_Wasm_returnCallIndirectFactorial) {
   WasmFunctionCompiler& fact_aux_fn = r.NewFunction(sigs.i_ii(), "fact_aux");
   fact_aux_fn.SetSigIndex(0);
 
-  r.builder().AddSignature(sigs.i_ii());
+  byte sig_index = r.builder().AddSignature(sigs.i_ii());
 
   // Function table.
   uint16_t indirect_function_table[] = {
@@ -228,17 +228,17 @@ TEST(Run_Wasm_returnCallIndirectFactorial) {
 
   r.builder().AddIndirectFunctionTable(indirect_function_table,
                                        arraysize(indirect_function_table));
-  r.builder().PopulateIndirectFunctionTable();
 
-  BUILD(r, WASM_RETURN_CALL_INDIRECT(0, WASM_I32V(0), WASM_GET_LOCAL(0),
-                                     WASM_I32V(1)));
+  BUILD(r, WASM_RETURN_CALL_INDIRECT(sig_index, WASM_GET_LOCAL(0), WASM_I32V(1),
+                                     WASM_ZERO));
 
-  BUILD(fact_aux_fn,
-        WASM_IF_ELSE_I(
-            WASM_I32_EQ(WASM_I32V(1), WASM_GET_LOCAL(0)), WASM_GET_LOCAL(1),
-            WASM_RETURN_CALL_INDIRECT(
-                0, WASM_I32V(0), WASM_I32_SUB(WASM_GET_LOCAL(0), WASM_I32V(1)),
-                WASM_I32_MUL(WASM_GET_LOCAL(0), WASM_GET_LOCAL(1)))));
+  BUILD(
+      fact_aux_fn,
+      WASM_IF_ELSE_I(
+          WASM_I32_EQ(WASM_I32V(1), WASM_GET_LOCAL(0)), WASM_GET_LOCAL(1),
+          WASM_RETURN_CALL_INDIRECT(
+              sig_index, WASM_I32_SUB(WASM_GET_LOCAL(0), WASM_I32V(1)),
+              WASM_I32_MUL(WASM_GET_LOCAL(0), WASM_GET_LOCAL(1)), WASM_ZERO)));
 
   uint32_t test_values[] = {1, 2, 5, 10, 20};
 
@@ -278,7 +278,7 @@ TEST(Breakpoint_I32Add) {
   static const int kNumBreakpoints = 3;
   byte code[] = {WASM_I32_ADD(WASM_GET_LOCAL(0), WASM_GET_LOCAL(1))};
   std::unique_ptr<int[]> offsets =
-      Find(code, sizeof(code), kNumBreakpoints, kExprGetLocal, kExprGetLocal,
+      Find(code, sizeof(code), kNumBreakpoints, kExprLocalGet, kExprLocalGet,
            kExprI32Add);
 
   WasmRunner<int32_t, uint32_t, uint32_t> r(ExecutionTier::kInterpreter);
@@ -431,6 +431,26 @@ TEST(MemoryGrowInvalidSize) {
   CHECK_EQ(-1, r.Call(1048575));
 }
 
+TEST(ReferenceTypeLocals) {
+  {
+    WasmRunner<int32_t> r(ExecutionTier::kInterpreter);
+    BUILD(r, WASM_REF_IS_NULL(WASM_REF_NULL));
+    CHECK_EQ(1, r.Call());
+  }
+  {
+    WasmRunner<int32_t> r(ExecutionTier::kInterpreter);
+    r.AllocateLocal(kWasmAnyRef);
+    BUILD(r, WASM_REF_IS_NULL(WASM_GET_LOCAL(0)));
+    CHECK_EQ(1, r.Call());
+  }
+  {
+    WasmRunner<int32_t> r(ExecutionTier::kInterpreter);
+    r.AllocateLocal(kWasmAnyRef);
+    BUILD(r, WASM_REF_IS_NULL(WASM_TEE_LOCAL(0, WASM_REF_NULL)));
+    CHECK_EQ(1, r.Call());
+  }
+}
+
 TEST(TestPossibleNondeterminism) {
   {
     WasmRunner<int32_t, float> r(ExecutionTier::kInterpreter);
@@ -555,7 +575,7 @@ TEST(WasmInterpreterActivations) {
   CHECK_EQ(2, thread->NumActivations());
   CHECK_EQ(2, thread->GetFrameCount());
   CHECK_EQ(WasmInterpreter::TRAPPED, thread->Run());
-  thread->RaiseException(isolate, handle(Smi::kZero, isolate));
+  thread->RaiseException(isolate, handle(Smi::zero(), isolate));
   CHECK_EQ(1, thread->GetFrameCount());
   CHECK_EQ(2, thread->NumActivations());
   thread->FinishActivation(act1);
@@ -563,7 +583,7 @@ TEST(WasmInterpreterActivations) {
   CHECK_EQ(1, thread->GetFrameCount());
   CHECK_EQ(1, thread->NumActivations());
   CHECK_EQ(WasmInterpreter::TRAPPED, thread->Run());
-  thread->RaiseException(isolate, handle(Smi::kZero, isolate));
+  thread->RaiseException(isolate, handle(Smi::zero(), isolate));
   CHECK_EQ(0, thread->GetFrameCount());
   CHECK_EQ(1, thread->NumActivations());
   thread->FinishActivation(act0);

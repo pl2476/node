@@ -41,7 +41,7 @@ assert.throws(() => {
 }, {
   code: 'ERR_INVALID_ARG_TYPE',
   message: 'The "id" argument must be one of type ' +
-    'number or string. Received type object'
+    'number or string. Received an instance of Object'
 });
 
 assert.throws(() => {
@@ -74,7 +74,7 @@ const oldgid = process.getgid();
 try {
   process.setgid('nobody');
 } catch (err) {
-  if (err.message !== 'setgid group id does not exist') {
+  if (err.code !== 'ERR_UNKNOWN_CREDENTIAL') {
     throw err;
   }
   process.setgid('nogroup');

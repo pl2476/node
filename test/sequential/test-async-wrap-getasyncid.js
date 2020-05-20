@@ -1,5 +1,5 @@
 'use strict';
-// Flags: --expose-gc --expose-internals --no-warnings
+// Flags: --expose-gc --expose-internals --no-warnings --test-udp-no-try-send
 
 const common = require('../common');
 const { internalBinding } = require('internal/test/binding');
@@ -8,7 +8,7 @@ const fs = require('fs');
 const v8 = require('v8');
 const fsPromises = fs.promises;
 const net = require('net');
-const providers = Object.assign({}, internalBinding('async_wrap').Providers);
+const providers = { ...internalBinding('async_wrap').Providers };
 const fixtures = require('../common/fixtures');
 const tmpdir = require('../common/tmpdir');
 const { getSystemErrorName } = require('util');
@@ -50,6 +50,9 @@ const { getSystemErrorName } = require('util');
     delete providers.KEYPAIRGENREQUEST;
     delete providers.HTTPCLIENTREQUEST;
     delete providers.HTTPINCOMINGMESSAGE;
+    delete providers.ELDHISTOGRAM;
+    delete providers.SIGINTWATCHDOG;
+    delete providers.WORKERHEAPSNAPSHOT;
 
     const objKeys = Object.keys(providers);
     if (objKeys.length > 0)
@@ -266,9 +269,9 @@ if (common.hasCrypto) { // eslint-disable-line node-core/crypto-check
   const { TCP, constants: TCPConstants } = internalBinding('tcp_wrap');
   const tcp = new TCP(TCPConstants.SOCKET);
 
-  const ca = fixtures.readSync('test_ca.pem', 'ascii');
-  const cert = fixtures.readSync('test_cert.pem', 'ascii');
-  const key = fixtures.readSync('test_key.pem', 'ascii');
+  const ca = fixtures.readKey('rsa_ca.crt');
+  const cert = fixtures.readKey('rsa_cert.crt');
+  const key = fixtures.readKey('rsa_private.pem');
 
   const credentials = require('tls').createSecureContext({ ca, cert, key });
 
@@ -304,4 +307,11 @@ if (process.features.inspector && common.isMainThread) {
 // PROVIDER_HEAPDUMP
 {
   v8.getHeapSnapshot().destroy();
+}
+
+// DIRHANDLE
+{
+  const dirBinding = internalBinding('fs_dir');
+  const handle = dirBinding.opendir('./', 'utf8', undefined, {});
+  testInitialized(handle, 'DirHandle');
 }

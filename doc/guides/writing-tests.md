@@ -6,17 +6,17 @@ Most tests in Node.js core are JavaScript programs that exercise a functionality
 provided by Node.js and check that it behaves as expected. Tests should exit
 with code `0` on success. A test will fail if:
 
-- It exits by setting `process.exitCode` to a non-zero number.
-  - This is usually done by having an assertion throw an uncaught Error.
-  - Occasionally, using `process.exit(code)` may be appropriate.
-- It never exits. In this case, the test runner will terminate the test because
+* It exits by setting `process.exitCode` to a non-zero number.
+  * This is usually done by having an assertion throw an uncaught Error.
+  * Occasionally, using `process.exit(code)` may be appropriate.
+* It never exits. In this case, the test runner will terminate the test because
   it sets a maximum time limit.
 
 Add tests when:
 
-- Adding new functionality.
-- Fixing regressions and bugs.
-- Expanding test coverage.
+* Adding new functionality.
+* Fixing regressions and bugs.
+* Expanding test coverage.
 
 ## Test directory structure
 
@@ -113,14 +113,14 @@ This is the body of the test. This test is simple, it just tests that an
 HTTP server accepts `non-ASCII` characters in the headers of an incoming
 request. Interesting things to notice:
 
-- If the test doesn't depend on a specific port number, then always use 0
+* If the test doesn't depend on a specific port number, then always use 0
   instead of an arbitrary value, as it allows tests to run in parallel safely,
   as the operating system will assign a random port. If the test requires a
   specific port, for example if the test checks that assigning a specific port
   works as expected, then it is ok to assign a specific port number.
-- The use of `common.mustCall` to check that some callbacks/listeners are
+* The use of `common.mustCall` to check that some callbacks/listeners are
   called.
-- The HTTP server closes once all the checks have run. This way, the test can
+* The HTTP server closes once all the checks have run. This way, the test can
   exit gracefully. Remember that for a test to succeed, it must exit with a
   status code of 0.
 
@@ -162,19 +162,22 @@ const assert = require('assert');
 const http = require('http');
 
 let request = 0;
+let listening = 0;
 let response = 0;
-process.on('exit', function() {
+process.on('exit', () => {
   assert.equal(request, 1, 'http server "request" callback was not called');
+  assert.equal(listening, 1, 'http server "listening" callback was not called');
   assert.equal(response, 1, 'http request "response" callback was not called');
 });
 
 const server = http.createServer((req, res) => {
   request++;
   res.end();
-}).listen(0, function() {
+}).listen(0, () => {
+  listening++;
   const options = {
     agent: null,
-    port: this.address().port
+    port: server.address().port
   };
   http.get(options, (res) => {
     response++;
@@ -193,18 +196,19 @@ const http = require('http');
 
 const server = http.createServer(common.mustCall((req, res) => {
   res.end();
-})).listen(0, function() {
+})).listen(0, common.mustCall(() => {
   const options = {
     agent: null,
-    port: this.address().port
+    port: server.address().port
   };
   http.get(options, common.mustCall((res) => {
     res.resume();
     server.close();
   }));
-});
+}));
 
 ```
+
 #### Countdown Module
 
 The common [Countdown module](https://github.com/nodejs/node/tree/master/test/common#countdown-module)
@@ -215,7 +219,7 @@ shutting down an HTTP server after a specific number of requests).
 ```javascript
 const Countdown = require('../common/countdown');
 
-const countdown = new Countdown(2, function() {
+const countdown = new Countdown(2, () => {
   console.log('.');
 });
 
@@ -248,7 +252,7 @@ fs.readFile('test-file').then(
 ### Flags
 
 Some tests will require running Node.js with specific command line flags set. To
-accomplish this, add a `// Flags: ` comment in the preamble of the
+accomplish this, add a `// Flags:` comment in the preamble of the
 test followed by the flags. For example, to allow a test to require some of the
 `internal/*` modules, add the `--expose-internals` flag.
 A test that would require `internal/freelist` could start like this:
@@ -267,8 +271,8 @@ const freelist = require('internal/freelist');
 
 When writing assertions, prefer the strict versions:
 
-- `assert.strictEqual()` over `assert.equal()`
-- `assert.deepStrictEqual()` over `assert.deepEqual()`
+* `assert.strictEqual()` over `assert.equal()`
+* `assert.deepStrictEqual()` over `assert.deepEqual()`
 
 When using `assert.throws()`, if possible, provide the full error message:
 
@@ -308,7 +312,6 @@ as part of the test (message tests, tests that check output from child
 processes, etc.), or is there as a debug aide. If there is any chance of
 confusion, use comments to make the purpose clear.
 
-
 ### ES.Next features
 
 For performance considerations, we only use a selected subset of ES.Next
@@ -318,9 +321,9 @@ features that can be used directly without a flag in
 [all maintained branches][]. [node.green][] lists available features
 in each release, such as:
 
-- `let` and `const` over `var`
-- Template literals over string concatenation
-- Arrow functions when appropriate
+* `let` and `const` over `var`
+* Template literals over string concatenation
+* Arrow functions when appropriate
 
 ## Naming Test Files
 
@@ -390,7 +393,7 @@ Next add the test to the `sources` in the `cctest` target in node.gyp:
 ],
 ```
 
-Note that the only sources that should be included in the cctest target are
+The only sources that should be included in the cctest target are
 actual test or helper source files. There might be a need to include specific
 object files that are compiled by the `node` target and this can be done by
 adding them to the `libraries` section in the cctest target.
@@ -402,11 +405,13 @@ $ make cctest
 ```
 
 A filter can be applied to run single/multiple test cases:
+
 ```console
 $ make cctest GTEST_FILTER=EnvironmentTest.AtExitWithArgument
 ```
 
 `cctest` can also be run directly which can be useful when debugging:
+
 ```console
 $ out/Release/cctest --gtest_filter=EnvironmentTest.AtExit*
 ```
@@ -424,11 +429,14 @@ will depend on what is being tested if this is required or not.
 To generate a test coverage report, see the
 [Test Coverage section of the Building guide][].
 
+Nightly coverage reports for the Node.js master branch are available at
+<https://coverage.nodejs.org/>.
+
 [ASCII]: http://man7.org/linux/man-pages/man7/ascii.7.html
 [Google Test]: https://github.com/google/googletest
 [`common` module]: https://github.com/nodejs/node/blob/master/test/common/README.md
 [all maintained branches]: https://github.com/nodejs/lts
-[node.green]: http://node.green/
+[node.green]: https://node.green/
 [test fixture]: https://github.com/google/googletest/blob/master/googletest/docs/Primer.md#test-fixtures-using-the-same-data-configuration-for-multiple-tests
 [Test Coverage section of the Building guide]: https://github.com/nodejs/node/blob/master/BUILDING.md#running-coverage
 [directory structure overview]: https://github.com/nodejs/node/blob/master/test/README.md#test-directories

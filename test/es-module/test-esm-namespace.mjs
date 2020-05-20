@@ -1,4 +1,3 @@
-// Flags: --experimental-modules
 import '../common/index.mjs';
 import * as fs from 'fs';
 import assert from 'assert';
@@ -11,4 +10,4 @@ const keys = Object.entries(
   .concat('default')
   .sort();
 
-assert.deepStrictEqual(Object.keys(fs).sort(), keys);
+assert.deepStrictEqual(keys, Object.keys(fs).sort());

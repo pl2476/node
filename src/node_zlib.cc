@@ -19,11 +19,13 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#include "memory_tracker-inl.h"
 #include "node.h"
 #include "node_buffer.h"
 
 #include "async_wrap-inl.h"
 #include "env-inl.h"
+#include "threadpoolwork-inl.h"
 #include "util-inl.h"
 
 #include "v8.h"
@@ -109,7 +111,12 @@ enum node_zlib_mode {
 
 struct CompressionError {
   CompressionError(const char* message, const char* code, int err)
-    : message(message), code(code), err(err) {}
+      : message(message),
+        code(code),
+        err(err) {
+    CHECK_NOT_NULL(message);
+  }
+
   CompressionError() = default;
 
   const char* message = nullptr;
@@ -346,7 +353,7 @@ class CompressionStream : public AsyncWrap, public ThreadPoolWork {
 
     if (!async) {
       // sync version
-      env()->PrintSyncTrace();
+      AsyncWrap::env()->PrintSyncTrace();
       DoThreadPoolWork();
       if (CheckError()) {
         UpdateWriteResult();
@@ -384,7 +391,7 @@ class CompressionStream : public AsyncWrap, public ThreadPoolWork {
   // v8 land!
   void AfterThreadPoolWork(int status) override {
     AllocScope alloc_scope(this);
-    OnScopeLeave on_scope_leave([&]() { Unref(); });
+    auto on_scope_leave = OnScopeLeave([&]() { Unref(); });
 
     write_in_progress_ = false;
 
@@ -395,8 +402,9 @@ class CompressionStream : public AsyncWrap, public ThreadPoolWork {
 
     CHECK_EQ(status, 0);
 
-    HandleScope handle_scope(env()->isolate());
-    Context::Scope context_scope(env()->context());
+    Environment* env = AsyncWrap::env();
+    HandleScope handle_scope(env->isolate());
+    Context::Scope context_scope(env->context());
 
     if (!CheckError())
       return;
@@ -404,7 +412,7 @@ class CompressionStream : public AsyncWrap, public ThreadPoolWork {
     UpdateWriteResult();
 
     // call the write() cb
-    Local<Function> cb = PersistentToLocal::Default(env()->isolate(),
+    Local<Function> cb = PersistentToLocal::Default(env->isolate(),
                                                     write_js_callback_);
     MakeCallback(cb, 0, nullptr);
 
@@ -414,16 +422,17 @@ class CompressionStream : public AsyncWrap, public ThreadPoolWork {
 
   // TODO(addaleax): Switch to modern error system (node_errors.h).
   void EmitError(const CompressionError& err) {
+    Environment* env = AsyncWrap::env();
     // If you hit this assertion, you forgot to enter the v8::Context first.
-    CHECK_EQ(env()->context(), env()->isolate()->GetCurrentContext());
+    CHECK_EQ(env->context(), env->isolate()->GetCurrentContext());
 
-    HandleScope scope(env()->isolate());
+    HandleScope scope(env->isolate());
     Local<Value> args[3] = {
-      OneByteString(env()->isolate(), err.message),
-      Integer::New(env()->isolate(), err.err),
-      OneByteString(env()->isolate(), err.code)
+      OneByteString(env->isolate(), err.message),
+      Integer::New(env->isolate(), err.err),
+      OneByteString(env->isolate(), err.code)
     };
-    MakeCallback(env()->onerror_string(), arraysize(args), args);
+    MakeCallback(env->onerror_string(), arraysize(args), args);
 
     // no hope of rescue.
     write_in_progress_ = false;
@@ -452,7 +461,7 @@ class CompressionStream : public AsyncWrap, public ThreadPoolWork {
 
   void InitStream(uint32_t* write_result, Local<Function> write_js_callback) {
     write_result_ = write_result;
-    write_js_callback_.Reset(env()->isolate(), write_js_callback);
+    write_js_callback_.Reset(AsyncWrap::env()->isolate(), write_js_callback);
     init_done_ = true;
   }
 
@@ -498,7 +507,7 @@ class CompressionStream : public AsyncWrap, public ThreadPoolWork {
     if (report == 0) return;
     CHECK_IMPLIES(report < 0, zlib_memory_ >= static_cast<size_t>(-report));
     zlib_memory_ += report;
-    env()->isolate()->AdjustAmountOfExternalAllocatedMemory(report);
+    AsyncWrap::env()->isolate()->AdjustAmountOfExternalAllocatedMemory(report);
   }
 
   struct AllocScope {
@@ -588,7 +597,8 @@ class ZlibStream : public CompressionStream<ZlibContext> {
     CHECK(args[4]->IsUint32Array());
     Local<Uint32Array> array = args[4].As<Uint32Array>();
     Local<ArrayBuffer> ab = array->Buffer();
-    uint32_t* write_result = static_cast<uint32_t*>(ab->GetContents().Data());
+    uint32_t* write_result = static_cast<uint32_t*>(
+        ab->GetBackingStore()->Data());
 
     CHECK(args[5]->IsFunction());
     Local<Function> write_js_callback = args[5].As<Function>();
@@ -992,7 +1002,7 @@ CompressionError ZlibContext::Init(
   if (err_ != Z_OK) {
     dictionary_.clear();
     mode_ = NONE;
-    return ErrorForMessage(nullptr);
+    return ErrorForMessage("zlib error");
   }
 
   return SetDictionary();
@@ -1211,7 +1221,8 @@ struct MakeClass {
   static void Make(Environment* env, Local<Object> target, const char* name) {
     Local<FunctionTemplate> z = env->NewFunctionTemplate(Stream::New);
 
-    z->InstanceTemplate()->SetInternalFieldCount(1);
+    z->InstanceTemplate()->SetInternalFieldCount(
+        Stream::kInternalFieldCount);
     z->Inherit(AsyncWrap::GetConstructorTemplate(env));
 
     env->SetProtoMethod(z, "write", Stream::template Write<true>);

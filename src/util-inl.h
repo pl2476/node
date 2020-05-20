@@ -24,6 +24,7 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
+#include <cmath>
 #include <cstring>
 #include "util.h"
 
@@ -497,6 +498,13 @@ ArrayBufferViewContents<T, S>::ArrayBufferViewContents(
 
 template <typename T, size_t S>
 ArrayBufferViewContents<T, S>::ArrayBufferViewContents(
+    v8::Local<v8::Object> value) {
+  CHECK(value->IsArrayBufferView());
+  Read(value.As<v8::ArrayBufferView>());
+}
+
+template <typename T, size_t S>
+ArrayBufferViewContents<T, S>::ArrayBufferViewContents(
     v8::Local<v8::ArrayBufferView> abv) {
   Read(abv);
 }
@@ -506,12 +514,54 @@ void ArrayBufferViewContents<T, S>::Read(v8::Local<v8::ArrayBufferView> abv) {
   static_assert(sizeof(T) == 1, "Only supports one-byte data at the moment");
   length_ = abv->ByteLength();
   if (length_ > sizeof(stack_storage_) || abv->HasBuffer()) {
-    data_ = static_cast<T*>(abv->Buffer()->GetContents().Data()) +
+    data_ = static_cast<T*>(abv->Buffer()->GetBackingStore()->Data()) +
         abv->ByteOffset();
   } else {
     abv->CopyContents(stack_storage_, sizeof(stack_storage_));
     data_ = stack_storage_;
   }
+}
+
+// ECMA262 20.1.2.5
+inline bool IsSafeJsInt(v8::Local<v8::Value> v) {
+  if (!v->IsNumber()) return false;
+  double v_d = v.As<v8::Number>()->Value();
+  if (std::isnan(v_d)) return false;
+  if (std::isinf(v_d)) return false;
+  if (std::trunc(v_d) != v_d) return false;  // not int
+  if (std::abs(v_d) <= static_cast<double>(kMaxSafeJsInteger)) return true;
+  return false;
+}
+
+constexpr size_t FastStringKey::HashImpl(const char* str) {
+  // Low-quality hash (djb2), but just fine for current use cases.
+  size_t h = 5381;
+  do {
+    h = h * 33 + *str;  // NOLINT(readability/pointer_notation)
+  } while (*(str++) != '\0');
+  return h;
+}
+
+constexpr size_t FastStringKey::Hash::operator()(
+    const FastStringKey& key) const {
+  return key.cached_hash_;
+}
+
+constexpr bool FastStringKey::operator==(const FastStringKey& other) const {
+  const char* p1 = name_;
+  const char* p2 = other.name_;
+  if (p1 == p2) return true;
+  do {
+    if (*(p1++) != *(p2++)) return false;
+  } while (*p1 != '\0');
+  return true;
+}
+
+constexpr FastStringKey::FastStringKey(const char* name)
+  : name_(name), cached_hash_(HashImpl(name)) {}
+
+constexpr const char* FastStringKey::c_str() const {
+  return name_;
 }
 
 }  // namespace node

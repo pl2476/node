@@ -5,7 +5,6 @@
 
 #include "env.h"
 #include "node_mutex.h"
-#include "sharedarraybuffer_metadata.h"
 #include <list>
 
 namespace node {
@@ -14,15 +13,24 @@ namespace worker {
 class MessagePortData;
 class MessagePort;
 
+typedef MaybeStackBuffer<v8::Local<v8::Value>, 8> TransferList;
+
 // Represents a single communication message.
 class Message : public MemoryRetainer {
  public:
+  // Create a Message with a specific underlying payload, in the format of the
+  // V8 ValueSerializer API. If `payload` is empty, this message indicates
+  // that the receiving message port should close itself.
   explicit Message(MallocedBuffer<char>&& payload = MallocedBuffer<char>());
 
   Message(Message&& other) = default;
   Message& operator=(Message&& other) = default;
   Message& operator=(const Message&) = delete;
   Message(const Message&) = delete;
+
+  // Whether this is a message indicating that the port is to be closed.
+  // This is the last message to be received by a MessagePort.
+  bool IsCloseMessage() const;
 
   // Deserialize the contained JS value. May only be called once, and only
   // after Serialize() has been called (e.g. by another thread).
@@ -37,19 +45,19 @@ class Message : public MemoryRetainer {
   v8::Maybe<bool> Serialize(Environment* env,
                             v8::Local<v8::Context> context,
                             v8::Local<v8::Value> input,
-                            v8::Local<v8::Value> transfer_list,
+                            const TransferList& transfer_list,
                             v8::Local<v8::Object> source_port =
                                 v8::Local<v8::Object>());
 
   // Internal method of Message that is called when a new SharedArrayBuffer
   // object is encountered in the incoming value's structure.
-  void AddSharedArrayBuffer(const SharedArrayBufferMetadataReference& ref);
+  void AddSharedArrayBuffer(std::shared_ptr<v8::BackingStore> backing_store);
   // Internal method of Message that is called once serialization finishes
   // and that transfers ownership of `data` to this message.
   void AddMessagePort(std::unique_ptr<MessagePortData>&& data);
   // Internal method of Message that is called when a new WebAssembly.Module
   // object is encountered in the incoming value's structure.
-  uint32_t AddWASMModule(v8::WasmModuleObject::TransferrableModule&& mod);
+  uint32_t AddWASMModule(v8::CompiledWasmModule&& mod);
 
   // The MessagePorts that will be transferred, as recorded by Serialize().
   // Used for warning user about posting the target MessagePort to itself,
@@ -65,10 +73,10 @@ class Message : public MemoryRetainer {
 
  private:
   MallocedBuffer<char> main_message_buf_;
-  std::vector<MallocedBuffer<char>> array_buffer_contents_;
-  std::vector<SharedArrayBufferMetadataReference> shared_array_buffers_;
+  std::vector<std::shared_ptr<v8::BackingStore>> array_buffers_;
+  std::vector<std::shared_ptr<v8::BackingStore>> shared_array_buffers_;
   std::vector<std::unique_ptr<MessagePortData>> message_ports_;
-  std::vector<v8::WasmModuleObject::TransferrableModule> wasm_modules_;
+  std::vector<v8::CompiledWasmModule> wasm_modules_;
 
   friend class MessagePort;
 };
@@ -89,10 +97,6 @@ class MessagePortData : public MemoryRetainer {
   // This may be called from any thread.
   void AddToIncomingQueue(Message&& message);
 
-  // Returns true if and only this MessagePort is currently not entangled
-  // with another message port.
-  bool IsSiblingClosed() const;
-
   // Turns `a` and `b` into siblings, i.e. connects the sending side of one
   // to the receiving side of the other. This is not thread-safe.
   static void Entangle(MessagePortData* a, MessagePortData* b);
@@ -109,14 +113,9 @@ class MessagePortData : public MemoryRetainer {
   SET_SELF_SIZE(MessagePortData)
 
  private:
-  // After disentangling this message port, the owner handle (if any)
-  // is asynchronously triggered, so that it can close down naturally.
-  void PingOwnerAfterDisentanglement();
-
   // This mutex protects all fields below it, with the exception of
   // sibling_.
   mutable Mutex mutex_;
-  bool receiving_messages_ = false;
   std::list<Message> incoming_messages_;
   MessagePort* owner_ = nullptr;
   // This mutex protects the sibling_ field and is shared between two entangled
@@ -132,12 +131,16 @@ class MessagePortData : public MemoryRetainer {
 // the uv_async_t handle that is used to notify the current event loop of
 // new incoming messages.
 class MessagePort : public HandleWrap {
- public:
+ private:
   // Create a new MessagePort. The `context` argument specifies the Context
   // instance that is used for creating the values emitted from this port.
+  // This is called by MessagePort::New(), which is the public API used for
+  // creating MessagePort instances.
   MessagePort(Environment* env,
               v8::Local<v8::Context> context,
               v8::Local<v8::Object> wrap);
+
+ public:
   ~MessagePort() override;
 
   // Create a new message port instance, optionally over an existing
@@ -151,7 +154,7 @@ class MessagePort : public HandleWrap {
   // serialized with transfers, then silently discarded.
   v8::Maybe<bool> PostMessage(Environment* env,
                               v8::Local<v8::Value> message,
-                              v8::Local<v8::Value> transfer);
+                              const TransferList& transfer);
 
   // Start processing messages on this port as a receiving end.
   void Start();
@@ -165,6 +168,7 @@ class MessagePort : public HandleWrap {
   static void Start(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Stop(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Drain(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void ReceiveMessage(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   /* static */
   static void MoveToContext(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -179,7 +183,6 @@ class MessagePort : public HandleWrap {
   // messages.
   std::unique_ptr<MessagePortData> Detach();
 
-  bool IsSiblingClosed() const;
   void Close(
       v8::Local<v8::Value> close_callback = v8::Local<v8::Value>()) override;
 
@@ -192,10 +195,7 @@ class MessagePort : public HandleWrap {
   // NULL pointer to the C++ MessagePort object is also detached.
   inline bool IsDetached() const;
 
-  void MemoryInfo(MemoryTracker* tracker) const override {
-    tracker->TrackField("data", data_);
-  }
-
+  void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(MessagePort)
   SET_SELF_SIZE(MessagePort)
 
@@ -203,15 +203,19 @@ class MessagePort : public HandleWrap {
   void OnClose() override;
   void OnMessage();
   void TriggerAsync();
+  v8::MaybeLocal<v8::Value> ReceiveMessage(v8::Local<v8::Context> context,
+                                           bool only_if_receiving);
 
   std::unique_ptr<MessagePortData> data_ = nullptr;
+  bool receiving_messages_ = false;
   uv_async_t async_;
+  v8::Global<v8::Function> emit_message_fn_;
 
   friend class MessagePortData;
 };
 
-v8::MaybeLocal<v8::Function> GetMessagePortConstructor(
-    Environment* env, v8::Local<v8::Context> context);
+v8::Local<v8::FunctionTemplate> GetMessagePortConstructorTemplate(
+    Environment* env);
 
 }  // namespace worker
 }  // namespace node

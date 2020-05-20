@@ -3,18 +3,16 @@ const common = require('../common.js');
 const bench = common.createBenchmark(main, {
   dur: [5],
   type: ['buf', 'asc', 'utf'],
-  size: [2, 1024, 1024 * 1024]
+  size: [100, 1024, 1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024]
 });
 
-const path = require('path');
-const fs = require('fs');
-const cert_dir = path.resolve(__dirname, '../../test/fixtures');
-var options;
+const fixtures = require('../../test/common/fixtures');
+let options;
 const tls = require('tls');
 
 function main({ dur, type, size }) {
-  var encoding;
-  var chunk;
+  let encoding;
+  let chunk;
   switch (type) {
     case 'buf':
       chunk = Buffer.alloc(size, 'b');
@@ -32,14 +30,14 @@ function main({ dur, type, size }) {
   }
 
   options = {
-    key: fs.readFileSync(`${cert_dir}/test_key.pem`),
-    cert: fs.readFileSync(`${cert_dir}/test_cert.pem`),
-    ca: [ fs.readFileSync(`${cert_dir}/test_ca.pem`) ],
+    key: fixtures.readKey('rsa_private.pem'),
+    cert: fixtures.readKey('rsa_cert.crt'),
+    ca: fixtures.readKey('rsa_ca.crt'),
     ciphers: 'AES256-GCM-SHA384'
   };
 
   const server = tls.createServer(options, onConnection);
-  var conn;
+  let conn;
   server.listen(common.PORT, () => {
     const opt = { port: common.PORT, rejectUnauthorized: false };
     conn = tls.connect(opt, () => {
@@ -54,7 +52,7 @@ function main({ dur, type, size }) {
     }
   });
 
-  var received = 0;
+  let received = 0;
   function onConnection(conn) {
     conn.on('data', (chunk) => {
       received += chunk.length;

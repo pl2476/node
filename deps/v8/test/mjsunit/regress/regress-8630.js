@@ -20,8 +20,9 @@ assertThrows("var [(x)] = [];", SyntaxError);
 assertThrows("var [({x: 1}) = y] = [];", SyntaxError);
 assertThrows("var [(x) = y] = [];", SyntaxError);
 
-// Patterns in can't have parentheses in assignments either
+// Patterns can't have parentheses in assignments either
 assertThrows("[({x: 1}) = y] = [];", SyntaxError);
+assertThrows("({a,b}) = {a:2,b:3}", SyntaxError);
 
 // Parentheses are fine around identifiers in assignments though, even inside a
 // pattern

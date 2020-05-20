@@ -102,6 +102,17 @@ new Promise(function testWithoutJSMarshaller(resolve) {
 }))
 .then((result) => assert.deepStrictEqual(result, expectedArray))
 
+// Start the thread in blocking mode, and assert that all values are passed.
+// Quit after it's done.
+// Doesn't pass the callback js function to napi_create_threadsafe_function.
+// Instead, use an alternative reference to get js function called.
+.then(() => testWithJSMarshaller({
+  threadStarter: 'StartThreadNoJsFunc',
+  maxQueueSize: binding.MAX_QUEUE_SIZE,
+  quitAfter: binding.ARRAY_LENGTH
+}))
+.then((result) => assert.deepStrictEqual(result, expectedArray))
+
 // Start the thread in blocking mode with an infinite queue, and assert that all
 // values are passed. Quit after it's done.
 .then(() => testWithJSMarshaller({
@@ -199,8 +210,13 @@ new Promise(function testWithoutJSMarshaller(resolve) {
 }))
 .then((result) => assert.strictEqual(result.indexOf(0), -1))
 
-// Start a child process to test rapid teardown
+// Start a child process to test rapid teardown.
 .then(() => testUnref(binding.MAX_QUEUE_SIZE))
 
-// Start a child process with an infinite queue to test rapid teardown
-.then(() => testUnref(0));
+// Start a child process with an infinite queue to test rapid teardown.
+.then(() => testUnref(0))
+
+// Test deadlock prevention.
+.then(() => assert.deepStrictEqual(binding.TestDeadlock(), {
+  deadlockTest: 'Main thread would deadlock'
+}));

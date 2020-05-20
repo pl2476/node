@@ -35,10 +35,14 @@ from testrunner.local import testsuite
 from testrunner.objects import testcase
 from testrunner.outproc import base as outproc
 
+try:
+  basestring       # Python 2
+except NameError:  # Python 3
+  basestring = str
+
 FILES_PATTERN = re.compile(r"//\s+Files:(.*)")
 ENV_PATTERN = re.compile(r"//\s+Environment Variables:(.*)")
 SELF_SCRIPT_PATTERN = re.compile(r"//\s+Env: TEST_FILE_NAME")
-MODULE_PATTERN = re.compile(r"^// MODULE$", flags=re.MULTILINE)
 NO_HARNESS_PATTERN = re.compile(r"^// NO HARNESS$", flags=re.MULTILINE)
 
 
@@ -62,7 +66,7 @@ class TestLoader(testsuite.JSTestLoader):
   def excluded_files(self):
     return {
       "mjsunit.js",
-      "mjsunit_suppressions.js",
+      "mjsunit_numfuzz.js",
     }
 
 
@@ -94,8 +98,7 @@ class TestCase(testcase.D8TestCase):
         break
     files = [ os.path.normpath(os.path.join(self.suite.root, '..', '..', f))
               for f in files_list ]
-    testfilename = os.path.join(self.suite.root,
-                                self.path + self._get_suffix())
+    testfilename = self._get_source_path()
     if SELF_SCRIPT_PATTERN.search(source):
       files = (
         ["-e", "TEST_FILE_NAME=\"%s\"" % testfilename.replace("\\", "\\\\")] +
@@ -106,15 +109,13 @@ class TestCase(testcase.D8TestCase):
     else:
       mjsunit_files = [os.path.join(self.suite.root, "mjsunit.js")]
 
-    files_suffix = []
-    if MODULE_PATTERN.search(source):
-      files_suffix.append("--module")
-    files_suffix.append(testfilename)
+    if self.suite.framework_name == 'num_fuzzer':
+      mjsunit_files.append(os.path.join(self.suite.root, "mjsunit_numfuzz.js"))
 
     self._source_files = files
     self._source_flags = self._parse_source_flags(source)
     self._mjsunit_files = mjsunit_files
-    self._files_suffix = files_suffix
+    self._files_suffix = [testfilename]
     self._env = self._parse_source_env(source)
 
   def _parse_source_env(self, source):
@@ -143,7 +144,13 @@ class TestCase(testcase.D8TestCase):
     return self._env
 
   def _get_source_path(self):
-    return os.path.join(self.suite.root, self.path + self._get_suffix())
+    base_path = os.path.join(self.suite.root, self.path)
+    # Try .js first, and fall back to .mjs.
+    # TODO(v8:9406): clean this up by never separating the path from
+    # the extension in the first place.
+    if os.path.exists(base_path + self._get_suffix()):
+      return base_path + self._get_suffix()
+    return base_path + '.mjs'
 
 
 class TestCombiner(testsuite.TestCombiner):

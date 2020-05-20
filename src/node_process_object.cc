@@ -32,11 +32,11 @@ using v8::Value;
 
 static void ProcessTitleGetter(Local<Name> property,
                                const PropertyCallbackInfo<Value>& info) {
-  char buffer[512];
-  uv_get_process_title(buffer, sizeof(buffer));
+  std::string title = GetProcessTitle("node");
   info.GetReturnValue().Set(
-      String::NewFromUtf8(info.GetIsolate(), buffer, NewStringType::kNormal)
-          .ToLocalChecked());
+      String::NewFromUtf8(info.GetIsolate(), title.data(),
+                          NewStringType::kNormal, title.size())
+      .ToLocalChecked());
 }
 
 static void ProcessTitleSetter(Local<Name> property,
@@ -51,7 +51,8 @@ static void ProcessTitleSetter(Local<Name> property,
 static void DebugPortGetter(Local<Name> property,
                             const PropertyCallbackInfo<Value>& info) {
   Environment* env = Environment::GetCurrent(info);
-  int port = env->inspector_host_port()->port();
+  ExclusiveAccess<HostPort>::Scoped host_port(env->inspector_host_port());
+  int port = host_port->port();
   info.GetReturnValue().Set(port);
 }
 
@@ -60,7 +61,8 @@ static void DebugPortSetter(Local<Name> property,
                             const PropertyCallbackInfo<void>& info) {
   Environment* env = Environment::GetCurrent(info);
   int32_t port = value->Int32Value(env->context()).FromMaybe(0);
-  env->inspector_host_port()->set_port(static_cast<int>(port));
+  ExclusiveAccess<HostPort>::Scoped host_port(env->inspector_host_port());
+  host_port->set_port(static_cast<int>(port));
 }
 
 static void GetParentProcessId(Local<Name> property,
@@ -68,16 +70,13 @@ static void GetParentProcessId(Local<Name> property,
   info.GetReturnValue().Set(uv_os_getppid());
 }
 
-MaybeLocal<Object> CreateProcessObject(
-    Environment* env,
-    const std::vector<std::string>& args,
-    const std::vector<std::string>& exec_args) {
+MaybeLocal<Object> CreateProcessObject(Environment* env) {
   Isolate* isolate = env->isolate();
   EscapableHandleScope scope(isolate);
   Local<Context> context = env->context();
 
   Local<FunctionTemplate> process_template = FunctionTemplate::New(isolate);
-  process_template->SetClassName(FIXED_ONE_BYTE_STRING(isolate, "process"));
+  process_template->SetClassName(env->process_string());
   Local<Function> process_ctor;
   Local<Object> process;
   if (!process_template->GetFunction(context).ToLocal(&process_ctor) ||
@@ -128,7 +127,7 @@ MaybeLocal<Object> CreateProcessObject(
 #endif  // NODE_HAS_RELEASE_URLS
 
   // process._rawDebug: may be overwritten later in JS land, but should be
-  // availbale from the begining for debugging purposes
+  // available from the beginning for debugging purposes
   env->SetMethod(process, "_rawDebug", RawDebug);
 
   return scope.Escape(process);
@@ -148,7 +147,7 @@ void PatchProcessObject(const FunctionCallbackInfo<Value>& args) {
                 FIXED_ONE_BYTE_STRING(isolate, "title"),
                 ProcessTitleGetter,
                 env->owns_process_state() ? ProcessTitleSetter : nullptr,
-                env->as_callback_data(),
+                Local<Value>(),
                 DEFAULT,
                 None,
                 SideEffectType::kHasNoSideEffect)
@@ -183,37 +182,15 @@ void PatchProcessObject(const FunctionCallbackInfo<Value>& args) {
 #undef V
 
   // process.execPath
-  {
-    char exec_path_buf[2 * PATH_MAX];
-    size_t exec_path_len = sizeof(exec_path_buf);
-    std::string exec_path;
-    if (uv_exepath(exec_path_buf, &exec_path_len) == 0) {
-      exec_path = std::string(exec_path_buf, exec_path_len);
-    } else {
-      exec_path = env->argv()[0];
-    }
-    // On OpenBSD process.execPath will be relative unless we
-    // get the full path before process.execPath is used.
-#if defined(__OpenBSD__)
-    uv_fs_t req;
-    req.ptr = nullptr;
-    if (0 ==
-        uv_fs_realpath(env->event_loop(), &req, exec_path.c_str(), nullptr)) {
-      CHECK_NOT_NULL(req.ptr);
-      exec_path = std::string(static_cast<char*>(req.ptr));
-    }
-    uv_fs_req_cleanup(&req);
-#endif
-    process
-        ->Set(context,
-              FIXED_ONE_BYTE_STRING(isolate, "execPath"),
-              String::NewFromUtf8(isolate,
-                                  exec_path.c_str(),
-                                  NewStringType::kInternalized,
-                                  exec_path.size())
-                  .ToLocalChecked())
-        .Check();
-  }
+  process
+      ->Set(context,
+            FIXED_ONE_BYTE_STRING(isolate, "execPath"),
+            String::NewFromUtf8(isolate,
+                                env->exec_path().c_str(),
+                                NewStringType::kInternalized,
+                                env->exec_path().size())
+                .ToLocalChecked())
+      .Check();
 
   // process.debugPort
   CHECK(process
@@ -221,7 +198,7 @@ void PatchProcessObject(const FunctionCallbackInfo<Value>& args) {
                           FIXED_ONE_BYTE_STRING(isolate, "debugPort"),
                           DebugPortGetter,
                           env->owns_process_state() ? DebugPortSetter : nullptr,
-                          env->as_callback_data())
+                          Local<Value>())
             .FromJust());
 }
 

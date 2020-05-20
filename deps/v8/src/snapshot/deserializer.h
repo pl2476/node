@@ -5,10 +5,12 @@
 #ifndef V8_SNAPSHOT_DESERIALIZER_H_
 #define V8_SNAPSHOT_DESERIALIZER_H_
 
+#include <utility>
 #include <vector>
 
 #include "src/objects/allocation-site.h"
 #include "src/objects/api-callbacks.h"
+#include "src/objects/backing-store.h"
 #include "src/objects/code.h"
 #include "src/objects/js-array.h"
 #include "src/objects/map.h"
@@ -27,18 +29,19 @@ class Object;
 // of objects found in code.
 #if defined(V8_TARGET_ARCH_MIPS) || defined(V8_TARGET_ARCH_MIPS64) || \
     defined(V8_TARGET_ARCH_PPC) || defined(V8_TARGET_ARCH_S390) ||    \
-    V8_EMBEDDED_CONSTANT_POOL
+    defined(V8_TARGET_ARCH_PPC64) || V8_EMBEDDED_CONSTANT_POOL
 #define V8_CODE_EMBEDS_OBJECT_POINTER 1
 #else
 #define V8_CODE_EMBEDS_OBJECT_POINTER 0
 #endif
 
 // A Deserializer reads a snapshot and reconstructs the Object graph it defines.
-class Deserializer : public SerializerDeserializer {
+class V8_EXPORT_PRIVATE Deserializer : public SerializerDeserializer {
  public:
   ~Deserializer() override;
 
   void SetRehashability(bool v) { can_rehash_ = v; }
+  uint32_t GetChecksum() const { return source_.GetChecksum(); }
 
  protected:
   // Create a deserializer from a snapshot byte source.
@@ -47,13 +50,12 @@ class Deserializer : public SerializerDeserializer {
       : isolate_(nullptr),
         source_(data->Payload()),
         magic_number_(data->GetMagicNumber()),
-        external_reference_table_(nullptr),
         deserializing_user_code_(deserializing_user_code),
         can_rehash_(false) {
     allocator()->DecodeReservation(data->Reservations());
     // We start the indices here at 1, so that we can distinguish between an
     // actual index and a nullptr in a deserialized object requiring fix-up.
-    off_heap_backing_stores_.push_back(nullptr);
+    backing_stores_.push_back({});
   }
 
   void Initialize(Isolate* isolate);
@@ -66,12 +68,16 @@ class Deserializer : public SerializerDeserializer {
 
   // This returns the address of an object that has been described in the
   // snapshot by chunk index and offset.
-  HeapObject GetBackReferencedObject(int space);
+  HeapObject GetBackReferencedObject(SnapshotSpace space);
 
   // Add an object to back an attached reference. The order to add objects must
   // mirror the order they are added in the serializer.
   void AddAttachedObject(Handle<HeapObject> attached_object) {
     attached_objects_.push_back(attached_object);
+  }
+
+  void CheckNoArrayBufferBackingStores() {
+    CHECK_EQ(new_off_heap_array_buffers().size(), 0);
   }
 
   Isolate* isolate() const { return isolate_; }
@@ -94,6 +100,14 @@ class Deserializer : public SerializerDeserializer {
   }
   const std::vector<Handle<Script>>& new_scripts() const {
     return new_scripts_;
+  }
+
+  const std::vector<Handle<JSArrayBuffer>>& new_off_heap_array_buffers() const {
+    return new_off_heap_array_buffers_;
+  }
+
+  std::shared_ptr<BackingStore> backing_store(size_t i) {
+    return backing_stores_[i];
   }
 
   DeserializerAllocator* allocator() { return &allocator_; }
@@ -123,11 +137,13 @@ class Deserializer : public SerializerDeserializer {
   // object, i.e. if we are writing a series of tagged values that are not on
   // the heap. Return false if the object content has been deferred.
   template <typename TSlot>
-  bool ReadData(TSlot start, TSlot end, int space, Address object_address);
+  bool ReadData(TSlot start, TSlot end, SnapshotSpace space,
+                Address object_address);
 
   // A helper function for ReadData, templatized on the bytecode for efficiency.
   // Returns the new value of {current}.
-  template <typename TSlot, Bytecode bytecode, int space_number_if_any>
+  template <typename TSlot, Bytecode bytecode,
+            SnapshotSpace space_number_if_any>
   inline TSlot ReadDataCase(Isolate* isolate, TSlot current,
                             Address current_object_address, byte data,
                             bool write_barrier_needed);
@@ -136,8 +152,9 @@ class Deserializer : public SerializerDeserializer {
   inline Address ReadExternalReferenceCase();
 
   HeapObject ReadObject();
-  HeapObject ReadObject(int space_number);
-  void ReadCodeObjectBody(int space_number, Address code_object_address);
+  HeapObject ReadObject(SnapshotSpace space_number);
+  void ReadCodeObjectBody(SnapshotSpace space_number,
+                          Address code_object_address);
 
  public:
   void VisitCodeTarget(Code host, RelocInfo* rinfo);
@@ -152,15 +169,13 @@ class Deserializer : public SerializerDeserializer {
   TSlot ReadRepeatedObject(TSlot current, int repeat_count);
 
   // Special handling for serialized code like hooking up internalized strings.
-  HeapObject PostProcessNewObject(HeapObject obj, int space);
+  HeapObject PostProcessNewObject(HeapObject obj, SnapshotSpace space);
 
   // Objects from the attached object descriptions in the serialized user code.
   std::vector<Handle<HeapObject>> attached_objects_;
 
   SnapshotByteSource source_;
   uint32_t magic_number_;
-
-  ExternalReferenceTable* external_reference_table_;
 
   std::vector<Map> new_maps_;
   std::vector<AllocationSite> new_allocation_sites_;
@@ -169,7 +184,8 @@ class Deserializer : public SerializerDeserializer {
   std::vector<CallHandlerInfo> call_handler_infos_;
   std::vector<Handle<String>> new_internalized_strings_;
   std::vector<Handle<Script>> new_scripts_;
-  std::vector<byte*> off_heap_backing_stores_;
+  std::vector<Handle<JSArrayBuffer>> new_off_heap_array_buffers_;
+  std::vector<std::shared_ptr<BackingStore>> backing_stores_;
 
   DeserializerAllocator allocator_;
   const bool deserializing_user_code_;
@@ -189,13 +205,15 @@ class Deserializer : public SerializerDeserializer {
 };
 
 // Used to insert a deserialized internalized string into the string table.
-class StringTableInsertionKey : public StringTableKey {
+class StringTableInsertionKey final : public StringTableKey {
  public:
   explicit StringTableInsertionKey(String string);
 
-  bool IsMatch(Object string) override;
+  bool IsMatch(String string) override;
 
   V8_WARN_UNUSED_RESULT Handle<String> AsHandle(Isolate* isolate) override;
+
+  String string() const { return string_; }
 
  private:
   uint32_t ComputeHashField(String string);

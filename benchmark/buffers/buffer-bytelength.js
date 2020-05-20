@@ -3,8 +3,8 @@ const common = require('../common');
 
 const bench = common.createBenchmark(main, {
   encoding: ['utf8', 'base64', 'buffer'],
-  len: [1, 2, 4, 16, 64, 256], // x16
-  n: [5e6]
+  len: [2, 16, 256], // x16
+  n: [4e6]
 });
 
 // 16 chars each
@@ -16,10 +16,10 @@ const chars = [
 ];
 
 function main({ n, len, encoding }) {
-  var strings = [];
-  var results = [ len * 16 ];
+  let strings = [];
+  let results = [len * 16];
   if (encoding === 'buffer') {
-    strings = [ Buffer.alloc(len * 16, 'a') ];
+    strings = [Buffer.alloc(len * 16, 'a')];
   } else {
     for (const string of chars) {
       // Strings must be built differently, depending on encoding
@@ -37,7 +37,7 @@ function main({ n, len, encoding }) {
   }
 
   bench.start();
-  for (var i = 0; i < n; i++) {
+  for (let i = 0; i < n; i++) {
     const index = n % strings.length;
     // Go!
     const r = Buffer.byteLength(strings[index], encoding);

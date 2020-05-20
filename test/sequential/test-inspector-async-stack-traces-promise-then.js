@@ -1,4 +1,3 @@
-// Flags: --expose-internals
 'use strict';
 const common = require('../common');
 common.skipIfInspectorDisabled();
@@ -69,4 +68,4 @@ function assertArrayIncludes(actual, expected) {
     `Expected ${actualString} to contain ${expectedString}.`);
 }
 
-runTests();
+runTests().then(common.mustCall());

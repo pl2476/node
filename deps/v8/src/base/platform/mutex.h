@@ -55,9 +55,9 @@ class V8_BASE_EXPORT Mutex final {
 
   // The implementation-defined native handle type.
 #if V8_OS_POSIX
-  typedef pthread_mutex_t NativeHandle;
+  using NativeHandle = pthread_mutex_t;
 #elif V8_OS_WIN
-  typedef SRWLOCK NativeHandle;
+  using NativeHandle = SRWLOCK;
 #endif
 
   NativeHandle& native_handle() {
@@ -66,6 +66,8 @@ class V8_BASE_EXPORT Mutex final {
   const NativeHandle& native_handle() const {
     return native_handle_;
   }
+
+  V8_INLINE void AssertHeld() { DCHECK_EQ(1, level_); }
 
  private:
   NativeHandle native_handle_;
@@ -101,8 +103,8 @@ class V8_BASE_EXPORT Mutex final {
 //     // Do something.
 //   }
 //
-typedef LazyStaticInstance<Mutex, DefaultConstructTrait<Mutex>,
-                           ThreadSafeInitOnceTrait>::type LazyMutex;
+using LazyMutex = LazyStaticInstance<Mutex, DefaultConstructTrait<Mutex>,
+                                     ThreadSafeInitOnceTrait>::type;
 
 #define LAZY_MUTEX_INITIALIZER LAZY_STATIC_INSTANCE_INITIALIZER
 
@@ -153,9 +155,9 @@ class V8_BASE_EXPORT RecursiveMutex final {
  private:
   // The implementation-defined native handle type.
 #if V8_OS_POSIX
-  typedef pthread_mutex_t NativeHandle;
+  using NativeHandle = pthread_mutex_t;
 #elif V8_OS_WIN
-  typedef CRITICAL_SECTION NativeHandle;
+  using NativeHandle = CRITICAL_SECTION;
 #endif
 
   NativeHandle native_handle_;
@@ -177,9 +179,9 @@ class V8_BASE_EXPORT RecursiveMutex final {
 //     // Do something.
 //   }
 //
-typedef LazyStaticInstance<RecursiveMutex,
-                           DefaultConstructTrait<RecursiveMutex>,
-                           ThreadSafeInitOnceTrait>::type LazyRecursiveMutex;
+using LazyRecursiveMutex =
+    LazyStaticInstance<RecursiveMutex, DefaultConstructTrait<RecursiveMutex>,
+                       ThreadSafeInitOnceTrait>::type;
 
 #define LAZY_RECURSIVE_MUTEX_INITIALIZER LAZY_STATIC_INSTANCE_INITIALIZER
 
@@ -241,9 +243,9 @@ class V8_BASE_EXPORT SharedMutex final {
  private:
   // The implementation-defined native handle type.
 #if V8_OS_POSIX
-  typedef pthread_rwlock_t NativeHandle;
+  using NativeHandle = pthread_rwlock_t;
 #elif V8_OS_WIN
-  typedef SRWLOCK NativeHandle;
+  using NativeHandle = SRWLOCK;
 #endif
 
   NativeHandle native_handle_;
@@ -288,6 +290,7 @@ class LockGuard final {
 };
 
 using MutexGuard = LockGuard<Mutex>;
+using RecursiveMutexGuard = LockGuard<RecursiveMutex>;
 
 enum MutexSharedType : bool { kShared = true, kExclusive = false };
 

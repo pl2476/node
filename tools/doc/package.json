@@ -4,7 +4,7 @@
   "description": "Internal tool for generating Node.js API docs",
   "version": "0.0.0",
   "engines": {
-    "node": ">=6"
+    "node": ">=12.10.0"
   },
   "dependencies": {
     "rehype-raw": "^2.0.0",
@@ -19,7 +19,7 @@
     "unist-util-visit": "^1.4.0"
   },
   "devDependencies": {
-    "js-yaml": "^3.12.2"
+    "js-yaml": "^3.13.1"
   },
   "optionalDependencies": {},
   "bin": "./generate.js"

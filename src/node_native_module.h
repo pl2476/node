@@ -11,6 +11,9 @@
 #include "node_union_bytes.h"
 #include "v8.h"
 
+// Forward declare test fixture for `friend` declaration.
+class PerProcessTest;
+
 namespace node {
 namespace native_module {
 
@@ -44,6 +47,8 @@ class NativeModuleLoader {
   UnionBytes GetConfig();       // Return data for config.gypi
 
   bool Exists(const char* id);
+  bool Add(const char* id, const UnionBytes& source);
+
   v8::Local<v8::Object> GetSourceObject(v8::Local<v8::Context> context);
   v8::Local<v8::String> GetConfigString(v8::Isolate* isolate);
   std::vector<std::string> GetModuleIds();
@@ -63,6 +68,8 @@ class NativeModuleLoader {
   NativeModuleCacheMap* code_cache();
   v8::ScriptCompiler::CachedData* GetCodeCache(const char* id) const;
   enum class Result { kWithCache, kWithoutCache };
+  v8::MaybeLocal<v8::String> LoadBuiltinModuleSource(v8::Isolate* isolate,
+                                                     const char* id);
   // If an exception is encountered (e.g. source code contains
   // syntax error), the returned value is empty.
   v8::MaybeLocal<v8::Function> LookupAndCompile(
@@ -82,6 +89,8 @@ class NativeModuleLoader {
 
   // Used to synchronize access to the code cache map
   Mutex code_cache_mutex_;
+
+  friend class ::PerProcessTest;
 };
 }  // namespace native_module
 

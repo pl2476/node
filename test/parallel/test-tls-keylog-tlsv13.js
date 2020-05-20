@@ -9,8 +9,8 @@ const tls = require('tls');
 const fixtures = require('../common/fixtures');
 
 const server = tls.createServer({
-  key: fixtures.readSync('/keys/agent2-key.pem'),
-  cert: fixtures.readSync('/keys/agent2-cert.pem'),
+  key: fixtures.readKey('agent2-key.pem'),
+  cert: fixtures.readKey('agent2-cert.pem'),
   // Amount of keylog events depends on negotiated protocol
   // version, so force a specific one:
   minVersion: 'TLSv1.3',
@@ -21,9 +21,13 @@ const server = tls.createServer({
     rejectUnauthorized: false,
   });
 
-  const verifyBuffer = (line) => assert(Buffer.isBuffer(line));
-  server.on('keylog', common.mustCall(verifyBuffer, 5));
-  client.on('keylog', common.mustCall(verifyBuffer, 5));
+  server.on('keylog', common.mustCall((line, tlsSocket) => {
+    assert(Buffer.isBuffer(line));
+    assert.strictEqual(tlsSocket.encrypted, true);
+  }, 5));
+  client.on('keylog', common.mustCall((line) => {
+    assert(Buffer.isBuffer(line));
+  }, 5));
 
   client.once('secureConnect', () => {
     server.close();

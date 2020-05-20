@@ -274,8 +274,8 @@ void SerializerContext::WriteRawBytes(const FunctionCallbackInfo<Value>& args) {
         ctx->env(), "source must be a TypedArray or a DataView");
   }
 
-  ctx->serializer_.WriteRawBytes(Buffer::Data(args[0]),
-                                 Buffer::Length(args[0]));
+  ArrayBufferViewContents<char> bytes(args[0]);
+  ctx->serializer_.WriteRawBytes(bytes.data(), bytes.length());
 }
 
 DeserializerContext::DeserializerContext(Environment* env,
@@ -286,7 +286,6 @@ DeserializerContext::DeserializerContext(Environment* env,
     length_(Buffer::Length(buffer)),
     deserializer_(env->isolate(), data_, length_, this) {
   object()->Set(env->context(), env->buffer_string(), buffer).Check();
-  deserializer_.SetExpectInlineWasm(true);
 
   MakeWeak();
 }
@@ -451,7 +450,8 @@ void Initialize(Local<Object> target,
   Local<FunctionTemplate> ser =
       env->NewFunctionTemplate(SerializerContext::New);
 
-  ser->InstanceTemplate()->SetInternalFieldCount(1);
+  ser->InstanceTemplate()->SetInternalFieldCount(
+      SerializerContext::kInternalFieldCount);
 
   env->SetProtoMethod(ser, "writeHeader", SerializerContext::WriteHeader);
   env->SetProtoMethod(ser, "writeValue", SerializerContext::WriteValue);
@@ -477,7 +477,8 @@ void Initialize(Local<Object> target,
   Local<FunctionTemplate> des =
       env->NewFunctionTemplate(DeserializerContext::New);
 
-  des->InstanceTemplate()->SetInternalFieldCount(1);
+  des->InstanceTemplate()->SetInternalFieldCount(
+      DeserializerContext::kInternalFieldCount);
 
   env->SetProtoMethod(des, "readHeader", DeserializerContext::ReadHeader);
   env->SetProtoMethod(des, "readValue", DeserializerContext::ReadValue);

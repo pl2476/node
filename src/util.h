@@ -24,7 +24,14 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
+#if (__GNUC__ >= 8) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
 #include "v8.h"
+#if (__GNUC__ >= 8) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <cassert>
 #include <climits>  // PATH_MAX
@@ -41,6 +48,12 @@
 #include <array>
 #include <unordered_map>
 #include <utility>
+
+#ifdef __GNUC__
+#define MUST_USE_RESULT __attribute__((warn_unused_result))
+#else
+#define MUST_USE_RESULT
+#endif
 
 namespace node {
 
@@ -116,6 +129,16 @@ void DumpBacktrace(FILE* fp);
 
 #define ABORT() node::Abort()
 
+#define ERROR_AND_ABORT(expr)                                                 \
+  do {                                                                        \
+    /* Make sure that this struct does not end up in inline code, but      */ \
+    /* rather in a read-only data section when modifying this code.        */ \
+    static const node::AssertionInfo args = {                                 \
+      __FILE__ ":" STRINGIFY(__LINE__), #expr, PRETTY_FUNCTION_NAME           \
+    };                                                                        \
+    node::Assert(args);                                                       \
+  } while (0)
+
 #ifdef __GNUC__
 #define LIKELY(expr) __builtin_expect(!!(expr), 1)
 #define UNLIKELY(expr) __builtin_expect(!!(expr), 0)
@@ -132,12 +155,7 @@ void DumpBacktrace(FILE* fp);
 #define CHECK(expr)                                                           \
   do {                                                                        \
     if (UNLIKELY(!(expr))) {                                                  \
-      /* Make sure that this struct does not end up in inline code, but    */ \
-      /* rather in a read-only data section when modifying this code.      */ \
-      static const node::AssertionInfo args = {                               \
-        __FILE__ ":" STRINGIFY(__LINE__), #expr, PRETTY_FUNCTION_NAME         \
-      };                                                                      \
-      node::Assert(args);                                                     \
+      ERROR_AND_ABORT(expr);                                                  \
     }                                                                         \
   } while (0)
 
@@ -176,7 +194,13 @@ void DumpBacktrace(FILE* fp);
 #endif
 
 
-#define UNREACHABLE() ABORT()
+#define UNREACHABLE(...)                                                      \
+  ERROR_AND_ABORT("Unreachable code reached" __VA_OPT__(": ") __VA_ARGS__)
+
+// ECMA262 20.1.2.6 Number.MAX_SAFE_INTEGER (2^53-1)
+constexpr int64_t kMaxSafeJsInteger = 9007199254740991;
+
+inline bool IsSafeJsInt(v8::Local<v8::Value> v);
 
 // TAILQ-style intrusive list node.
 template <typename T>
@@ -440,6 +464,7 @@ class ArrayBufferViewContents {
   ArrayBufferViewContents() = default;
 
   explicit inline ArrayBufferViewContents(v8::Local<v8::Value> value);
+  explicit inline ArrayBufferViewContents(v8::Local<v8::Object> value);
   explicit inline ArrayBufferViewContents(v8::Local<v8::ArrayBufferView> abv);
   inline void Read(v8::Local<v8::ArrayBufferView> abv);
 
@@ -455,6 +480,8 @@ class ArrayBufferViewContents {
 class Utf8Value : public MaybeStackBuffer<char> {
  public:
   explicit Utf8Value(v8::Isolate* isolate, v8::Local<v8::Value> value);
+
+  inline std::string ToString() const { return std::string(out(), length()); }
 };
 
 class TwoByteValue : public MaybeStackBuffer<uint16_t> {
@@ -465,16 +492,19 @@ class TwoByteValue : public MaybeStackBuffer<uint16_t> {
 class BufferValue : public MaybeStackBuffer<char> {
  public:
   explicit BufferValue(v8::Isolate* isolate, v8::Local<v8::Value> value);
+
+  inline std::string ToString() const { return std::string(out(), length()); }
 };
 
 #define SPREAD_BUFFER_ARG(val, name)                                          \
   CHECK((val)->IsArrayBufferView());                                          \
   v8::Local<v8::ArrayBufferView> name = (val).As<v8::ArrayBufferView>();      \
-  v8::ArrayBuffer::Contents name##_c = name->Buffer()->GetContents();         \
+  std::shared_ptr<v8::BackingStore> name##_bs =                               \
+      name->Buffer()->GetBackingStore();                                      \
   const size_t name##_offset = name->ByteOffset();                            \
   const size_t name##_length = name->ByteLength();                            \
   char* const name##_data =                                                   \
-      static_cast<char*>(name##_c.Data()) + name##_offset;                    \
+      static_cast<char*>(name##_bs->Data()) + name##_offset;                  \
   if (name##_length > 0)                                                      \
     CHECK_NE(name##_data, nullptr);
 
@@ -482,13 +512,36 @@ class BufferValue : public MaybeStackBuffer<char> {
 // silence a compiler warning about that.
 template <typename T> inline void USE(T&&) {}
 
-// Run a function when exiting the current scope.
-struct OnScopeLeave {
-  std::function<void()> fn_;
+template <typename Fn>
+struct OnScopeLeaveImpl {
+  Fn fn_;
+  bool active_;
 
-  explicit OnScopeLeave(std::function<void()> fn) : fn_(std::move(fn)) {}
-  ~OnScopeLeave() { fn_(); }
+  explicit OnScopeLeaveImpl(Fn&& fn) : fn_(std::move(fn)), active_(true) {}
+  ~OnScopeLeaveImpl() { if (active_) fn_(); }
+
+  OnScopeLeaveImpl(const OnScopeLeaveImpl& other) = delete;
+  OnScopeLeaveImpl& operator=(const OnScopeLeaveImpl& other) = delete;
+  OnScopeLeaveImpl(OnScopeLeaveImpl&& other)
+    : fn_(std::move(other.fn_)), active_(other.active_) {
+    other.active_ = false;
+  }
+  OnScopeLeaveImpl& operator=(OnScopeLeaveImpl&& other) {
+    if (this == &other) return *this;
+    this->~OnScopeLeave();
+    new (this)OnScopeLeaveImpl(std::move(other));
+    return *this;
+  }
 };
+
+// Run a function when exiting the current scope. Used like this:
+// auto on_scope_leave = OnScopeLeave([&] {
+//   // ... run some code ...
+// });
+template <typename Fn>
+inline MUST_USE_RESULT OnScopeLeaveImpl<Fn> OnScopeLeave(Fn&& fn) {
+  return OnScopeLeaveImpl<Fn>{std::move(fn)};
+}
 
 // Simple RAII wrapper for contiguous data that uses malloc()/free().
 template <typename T>
@@ -667,12 +720,6 @@ constexpr T RoundUp(T a, T b) {
   return a % b != 0 ? a + b - (a % b) : a;
 }
 
-#ifdef __GNUC__
-#define MUST_USE_RESULT __attribute__((warn_unused_result))
-#else
-#define MUST_USE_RESULT
-#endif
-
 class SlicedArguments : public MaybeStackBuffer<v8::Local<v8::Value>> {
  public:
   inline explicit SlicedArguments(
@@ -715,6 +762,27 @@ class PersistentToLocal {
       const v8::PersistentBase<TypeName>& persistent) {
     return v8::Local<TypeName>::New(isolate, persistent);
   }
+};
+
+// Can be used as a key for std::unordered_map when lookup performance is more
+// important than size and the keys are statically used to avoid redundant hash
+// computations.
+class FastStringKey {
+ public:
+  constexpr explicit FastStringKey(const char* name);
+
+  struct Hash {
+    constexpr size_t operator()(const FastStringKey& key) const;
+  };
+  constexpr bool operator==(const FastStringKey& other) const;
+
+  constexpr const char* c_str() const;
+
+ private:
+  static constexpr size_t HashImpl(const char* str);
+
+  const char* name_;
+  size_t cached_hash_;
 };
 
 }  // namespace node

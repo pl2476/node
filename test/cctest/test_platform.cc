@@ -23,8 +23,10 @@ class RepostingTask : public v8::Task {
     ++*run_count_;
     if (repost_count_ > 0) {
       --repost_count_;
-      platform_->CallOnForegroundThread(isolate_,
-          new RepostingTask(repost_count_, run_count_, isolate_, platform_));
+      std::shared_ptr<v8::TaskRunner> task_runner =
+          platform_->GetForegroundTaskRunner(isolate_);
+      task_runner->PostTask(std::make_unique<RepostingTask>(
+          repost_count_, run_count_, isolate_, platform_));
     }
   }
 
@@ -43,8 +45,10 @@ TEST_F(PlatformTest, SkipNewTasksInFlushForegroundTasks) {
   const Argv argv;
   Env env {handle_scope, argv};
   int run_count = 0;
-  platform->CallOnForegroundThread(
-      isolate_, new RepostingTask(2, &run_count, isolate_, platform.get()));
+  std::shared_ptr<v8::TaskRunner> task_runner =
+      platform->GetForegroundTaskRunner(isolate_);
+  task_runner->PostTask(
+      std::make_unique<RepostingTask>(2, &run_count, isolate_, platform.get()));
   EXPECT_TRUE(platform->FlushForegroundTasks(isolate_));
   EXPECT_EQ(1, run_count);
   EXPECT_TRUE(platform->FlushForegroundTasks(isolate_));
@@ -52,4 +56,51 @@ TEST_F(PlatformTest, SkipNewTasksInFlushForegroundTasks) {
   EXPECT_TRUE(platform->FlushForegroundTasks(isolate_));
   EXPECT_EQ(3, run_count);
   EXPECT_FALSE(platform->FlushForegroundTasks(isolate_));
+}
+
+// Tests the registration of an abstract `IsolatePlatformDelegate` instance as
+// opposed to the more common `uv_loop_s*` version of `RegisterIsolate`.
+TEST_F(NodeZeroIsolateTestFixture, IsolatePlatformDelegateTest) {
+  // Allocate isolate
+  v8::Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = allocator.get();
+  auto isolate = v8::Isolate::Allocate();
+  CHECK_NOT_NULL(isolate);
+
+  // Register *first*, then initialize
+  auto delegate = std::make_shared<node::PerIsolatePlatformData>(
+    isolate,
+    &current_loop);
+  platform->RegisterIsolate(isolate, delegate.get());
+  v8::Isolate::Initialize(isolate, create_params);
+
+  // Try creating Context + IsolateData + Environment
+  {
+    v8::Isolate::Scope isolate_scope(isolate);
+    v8::HandleScope handle_scope(isolate);
+
+    auto context = node::NewContext(isolate);
+    CHECK(!context.IsEmpty());
+    v8::Context::Scope context_scope(context);
+
+    std::unique_ptr<node::IsolateData, decltype(&node::FreeIsolateData)>
+      isolate_data{node::CreateIsolateData(isolate,
+                                           &current_loop,
+                                           platform.get()),
+                   node::FreeIsolateData};
+    CHECK(isolate_data);
+
+    std::unique_ptr<node::Environment, decltype(&node::FreeEnvironment)>
+      environment{node::CreateEnvironment(isolate_data.get(),
+                                          context,
+                                          0, nullptr,
+                                          0, nullptr),
+                  node::FreeEnvironment};
+    CHECK(environment);
+  }
+
+  // Graceful shutdown
+  delegate->Shutdown();
+  platform->UnregisterIsolate(isolate);
+  isolate->Dispose();
 }

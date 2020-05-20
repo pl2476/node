@@ -23,6 +23,7 @@
 
 const common = require('../common');
 const R = require('_stream_readable');
+const W = require('_stream_writable');
 const assert = require('assert');
 
 const EE = require('events').EventEmitter;
@@ -170,10 +171,10 @@ class TestWriter extends EE {
   w[0].on('write', function() {
     if (--writes === 0) {
       r.unpipe();
-      assert.strictEqual(r._readableState.pipes, null);
+      assert.deepStrictEqual(r._readableState.pipes, []);
       w[0].end();
       r.pipe(w[1]);
-      assert.strictEqual(r._readableState.pipes, w[1]);
+      assert.deepStrictEqual(r._readableState.pipes, [w[1]]);
     }
   });
 
@@ -354,7 +355,6 @@ class TestWriter extends EE {
   assert.strictEqual(v, null);
 
   const w = new R();
-
   w.write = function(buffer) {
     written = true;
     assert.strictEqual(ended, false);
@@ -419,4 +419,28 @@ class TestWriter extends EE {
   r._read = common.mustCall();
   const r2 = r.setEncoding('utf8').pause().resume().pause();
   assert.strictEqual(r, r2);
+}
+
+{
+  // Verify readableEncoding property
+  assert(R.prototype.hasOwnProperty('readableEncoding'));
+
+  const r = new R({ encoding: 'utf8' });
+  assert.strictEqual(r.readableEncoding, 'utf8');
+}
+
+{
+  // Verify readableObjectMode property
+  assert(R.prototype.hasOwnProperty('readableObjectMode'));
+
+  const r = new R({ objectMode: true });
+  assert.strictEqual(r.readableObjectMode, true);
+}
+
+{
+  // Verify writableObjectMode property
+  assert(W.prototype.hasOwnProperty('writableObjectMode'));
+
+  const w = new W({ objectMode: true });
+  assert.strictEqual(w.writableObjectMode, true);
 }

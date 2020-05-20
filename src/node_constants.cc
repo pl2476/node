@@ -19,6 +19,7 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#include "env-inl.h"
 #include "node_constants.h"
 #include "node_internals.h"
 #include "util-inl.h"
@@ -1071,12 +1072,6 @@ void DefineCryptoConstants(Local<Object> target) {
   NODE_DEFINE_CONSTANT(target, POINT_CONVERSION_UNCOMPRESSED);
 
   NODE_DEFINE_CONSTANT(target, POINT_CONVERSION_HYBRID);
-
-  NODE_DEFINE_STRING_CONSTANT(
-      target,
-      "defaultCipherList",
-      per_process::cli_options->tls_cipher_list.c_str());
-
 #endif
 }
 
@@ -1125,6 +1120,8 @@ void DefineSystemConstants(Local<Object> target) {
 #ifdef O_EXCL
   NODE_DEFINE_CONSTANT(target, O_EXCL);
 #endif
+
+NODE_DEFINE_CONSTANT(target, UV_FS_O_FILEMAP);
 
 #ifdef O_NOCTTY
   NODE_DEFINE_CONSTANT(target, O_NOCTTY);

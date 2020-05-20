@@ -71,7 +71,8 @@ function test({
   };
   for (const [url, { body, match }] of Object.entries(resources)) {
     manifest.resources[url] = {
-      integrity: `sha256-${hash('sha256', match ? body : body + '\n')}`
+      integrity: `sha256-${hash('sha256', match ? body : body + '\n')}`,
+      dependencies: true
     };
     fs.writeFileSync(new URL(url, tmpdirURL.href), body);
   }
@@ -211,6 +212,10 @@ test({
   shouldFail: false,
   entry: parentFilepath,
   resources: {
+    [packageURL]: {
+      body: packageBody,
+      match: true,
+    },
     [parentURL]: {
       body: parentBody,
       match: true,
@@ -226,6 +231,10 @@ test({
   preload: [depFilepath],
   entry: parentFilepath,
   resources: {
+    [packageURL]: {
+      body: packageBody,
+      match: true,
+    },
     [parentURL]: {
       body: parentBody,
       match: true,
@@ -278,6 +287,10 @@ test({
   shouldFail: false,
   entry: depFilepath,
   resources: {
+    [packageURL]: {
+      body: packageBody,
+      match: true,
+    },
     [depURL]: {
       body: depBody,
       match: true,
@@ -288,6 +301,10 @@ test({
   shouldFail: false,
   entry: depFilepath,
   resources: {
+    [packageURL]: {
+      body: packageBody,
+      match: true,
+    },
     [policyToDepRelativeURLString]: {
       body: depBody,
       match: true,
@@ -308,6 +325,10 @@ test({
   shouldFail: false,
   entry: depFilepath,
   resources: {
+    [packageURL]: {
+      body: packageBody,
+      match: true,
+    },
     [policyToDepRelativeURLString]: {
       body: depBody,
       match: true,
@@ -350,6 +371,10 @@ test({
   shouldFail: false,
   entry: workerSpawningFilepath,
   resources: {
+    [packageURL]: {
+      body: packageBody,
+      match: true,
+    },
     [workerSpawningURL]: {
       body: workerSpawningBody,
       match: true,
@@ -369,6 +394,10 @@ test({
   entry: workerSpawningFilepath,
   preload: [parentFilepath],
   resources: {
+    [packageURL]: {
+      body: packageBody,
+      match: true,
+    },
     [workerSpawningURL]: {
       body: workerSpawningBody,
       match: true,

@@ -11,7 +11,7 @@ builder0.setName('module_0');
 let sig_index = builder0.addType(kSig_i_v);
 builder0.addFunction('main', kSig_i_i)
     .addBody([
-      kExprGetLocal, 0,  // --
+      kExprLocalGet, 0,  // --
       kExprCallIndirect, sig_index, kTableZero
     ])  // --
     .exportAs('main');
@@ -24,7 +24,7 @@ let builder1 = new WasmModuleBuilder();
 builder1.setName('module_1');
 builder1.addFunction('main', kSig_i_v).addBody([kExprUnreachable]);
 builder1.addImportedTable('z', 'table');
-builder1.addElementSegment(0, false, [0], true);
+builder1.addElementSegment(0, 0, false, [0], true);
 let module1 = new WebAssembly.Module(builder1.toBuffer());
 let instance1 =
     new WebAssembly.Instance(module1, {z: {table: instance0.exports.table}});

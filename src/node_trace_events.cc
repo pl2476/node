@@ -1,5 +1,6 @@
 #include "base_object-inl.h"
-#include "env.h"
+#include "env-inl.h"
+#include "memory_tracker-inl.h"
 #include "node.h"
 #include "node_internals.h"
 #include "node_v8_platform-inl.h"
@@ -128,7 +129,8 @@ void NodeCategorySet::Initialize(Local<Object> target,
 
   Local<FunctionTemplate> category_set =
       env->NewFunctionTemplate(NodeCategorySet::New);
-  category_set->InstanceTemplate()->SetInternalFieldCount(1);
+  category_set->InstanceTemplate()->SetInternalFieldCount(
+      NodeCategorySet::kInternalFieldCount);
   env->SetProtoMethod(category_set, "enable", NodeCategorySet::Enable);
   env->SetProtoMethod(category_set, "disable", NodeCategorySet::Disable);
 

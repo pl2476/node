@@ -26,24 +26,19 @@
     'uv_library%': 'static_library',
 
     'clang%': 0,
+    'error_on_warn%': 'false',
 
     'openssl_fips%': '',
-
-    # Some STL containers (e.g. std::vector) do not preserve ABI compatibility
-    # between debug and non-debug mode.
-    'disable_glibcxx_debug': 1,
+    'openssl_no_asm%': 0,
 
     # Don't use ICU data file (icudtl.dat) from V8, we use our own.
     'icu_use_data_file_flag%': 0,
 
     # Reset this number to 0 on major V8 upgrades.
     # Increment by one for each non-official patch applied to deps/v8.
-    'v8_embedder_string': '-node.17',
+    'v8_embedder_string': '-node.13',
 
     ##### V8 defaults for Node.js #####
-
-    # Old time default, now explicitly stated.
-    'v8_use_snapshot': 1,
 
     # Turn on SipHash for hash seed generation, addresses HashWick
     'v8_use_siphash': 'true',
@@ -70,34 +65,29 @@
     # https://github.com/nodejs/node/pull/22920/files#r222779926
     'v8_enable_fast_mksnapshot': 0,
 
+    'v8_win64_unwinding_info': 1,
+
+    # TODO(refack): make v8-perfetto happen
+    'v8_use_perfetto': 0,
+
     ##### end V8 defaults #####
 
     'conditions': [
-      ['target_arch=="arm64"', {
-        # Disabled pending https://github.com/nodejs/node/issues/23913.
-        'openssl_no_asm%': 1,
-      }, {
-        'openssl_no_asm%': 0,
-      }],
-      ['GENERATOR=="ninja"', {
-        'obj_dir': '<(PRODUCT_DIR)/obj',
-        'v8_base': '<(PRODUCT_DIR)/obj/tools/v8_gypfiles/libv8_base.a',
-       }, {
-        'obj_dir%': '<(PRODUCT_DIR)/obj.target',
-        'v8_base': '<(PRODUCT_DIR)/obj.target/tools/v8_gypfiles/libv8_base.a',
-      }],
       ['OS == "win"', {
         'os_posix': 0,
         'v8_postmortem_support%': 0,
         'obj_dir': '<(PRODUCT_DIR)/obj',
-        'v8_base': '<(PRODUCT_DIR)/lib/v8_libbase.lib',
+        'v8_base': '<(PRODUCT_DIR)/lib/libv8_snapshot.a',
       }, {
         'os_posix': 1,
         'v8_postmortem_support%': 1,
       }],
-      ['OS == "mac"', {
+      ['GENERATOR == "ninja"', {
+        'obj_dir': '<(PRODUCT_DIR)/obj',
+        'v8_base': '<(PRODUCT_DIR)/obj/tools/v8_gypfiles/libv8_snapshot.a',
+      }, {
         'obj_dir%': '<(PRODUCT_DIR)/obj.target',
-        'v8_base': '<(PRODUCT_DIR)/libv8_base.a',
+        'v8_base': '<(PRODUCT_DIR)/obj.target/tools/v8_gypfiles/libv8_snapshot.a',
       }],
       ['openssl_fips != ""', {
         'openssl_product': '<(STATIC_LIB_PREFIX)crypto<(STATIC_LIB_SUFFIX)',
@@ -106,6 +96,11 @@
       }],
       ['OS=="mac"', {
         'clang%': 1,
+        'obj_dir%': '<(PRODUCT_DIR)/obj.target',
+        'v8_base': '<(PRODUCT_DIR)/libv8_snapshot.a',
+      }],
+      ['target_arch in "ppc64 s390x"', {
+        'v8_enable_backtrace': 1,
       }],
     ],
   },
@@ -132,8 +127,8 @@
             'ldflags': [ '-Wl,-bbigtoc' ],
           }],
           ['OS == "android"', {
-            'cflags': [ '-fPIE' ],
-            'ldflags': [ '-fPIE', '-pie' ]
+            'cflags': [ '-fPIC' ],
+            'ldflags': [ '-fPIC' ]
           }],
         ],
         'msvs_settings': {
@@ -192,12 +187,17 @@
             ],
           },],
           ['OS == "android"', {
-            'cflags': [ '-fPIE' ],
-            'ldflags': [ '-fPIE', '-pie' ]
+            'cflags': [ '-fPIC' ],
+            'ldflags': [ '-fPIC' ]
           }],
         ],
         'msvs_settings': {
           'VCCLCompilerTool': {
+            'conditions': [
+              ['target_arch=="arm64"', {
+                'FloatingPointModel': 1 # /fp:strict
+              }]
+            ],
             'EnableFunctionLevelLinking': 'true',
             'EnableIntrinsicFunctions': 'true',
             'FavorSizeOrSpeed': 1,          # /Ot, favor speed over size
@@ -207,7 +207,10 @@
             'RuntimeLibrary': '<(MSVC_runtimeType)',
             'RuntimeTypeInfo': 'false',
           }
-        }
+        },
+        'xcode_settings': {
+          'GCC_OPTIMIZATION_LEVEL': '3', # stop gyp from defaulting to -Os
+        },
       }
     },
 
@@ -221,43 +224,40 @@
     # Forcibly disable -Werror.  We support a wide range of compilers, it's
     # simply not feasible to squelch all warnings, never mind that the
     # libraries in deps/ are not under our control.
-    'cflags!': ['-Werror'],
+    'conditions': [
+      [ 'error_on_warn=="false"', {
+        'cflags!': ['-Werror'],
+      }, '(_target_name!="<(node_lib_target_name)" or '
+          '_target_name!="<(node_core_target_name)")', {
+        'cflags!': ['-Werror'],
+      }],
+    ],
     'msvs_settings': {
       'VCCLCompilerTool': {
         'BufferSecurityCheck': 'true',
-        'DebugInformationFormat': 1, # /Z7 embed info in .obj files
-        'ExceptionHandling': 0, # /EHsc
+        'DebugInformationFormat': 1,          # /Z7 embed info in .obj files
+        'ExceptionHandling': 0,               # /EHsc
         'MultiProcessorCompilation': 'true',
-        'StringPooling': 'true', # pool string literals
+        'StringPooling': 'true',              # pool string literals
         'SuppressStartupBanner': 'true',
         'WarnAsError': 'false',
-        'WarningLevel': 3,       # /W3
+        'WarningLevel': 3,                    # /W3
       },
       'VCLinkerTool': {
+        'target_conditions': [
+          ['_type=="executable"', {
+            'SubSystem': 1,                   # /SUBSYSTEM:CONSOLE
+          }],
+        ],
         'conditions': [
           ['target_arch=="ia32"', {
-            'TargetMachine' : 1, # /MACHINE:X86
-            'target_conditions': [
-              ['_type=="executable"', {
-                'AdditionalOptions': [ '/SubSystem:Console,"5.01"' ],
-              }],
-            ],
+            'TargetMachine' : 1,              # /MACHINE:X86
           }],
           ['target_arch=="x64"', {
-            'TargetMachine' : 17, # /MACHINE:AMD64
-            'target_conditions': [
-              ['_type=="executable"', {
-                'AdditionalOptions': [ '/SubSystem:Console,"5.02"' ],
-              }],
-            ],
+            'TargetMachine' : 17,             # /MACHINE:X64
           }],
           ['target_arch=="arm64"', {
-            'TargetMachine' : 0, # /MACHINE:ARM64 is inferred from the input files.
-            'target_conditions': [
-              ['_type=="executable"', {
-                'AdditionalOptions': [ '/SubSystem:Console' ],
-              }],
-            ],
+            'TargetMachine' : 0,              # NotSet. MACHINE:ARM64 is inferred from the input files.
           }],
         ],
         'GenerateDebugInformation': 'true',
@@ -297,8 +297,9 @@
         'cflags+': [
           '-fno-omit-frame-pointer',
           '-fsanitize=address',
-          '-DLEAK_SANITIZER'
+          '-fsanitize-address-use-after-scope',
         ],
+        'defines': [ 'LEAK_SANITIZER', 'V8_USE_ADDRESS_SANITIZER' ],
         'cflags!': [ '-fomit-frame-pointer' ],
         'ldflags': [ '-fsanitize=address' ],
       }],
@@ -319,6 +320,12 @@
             'xcode_settings': {'OTHER_LDFLAGS': ['-fsanitize=address']},
           }],
         ],
+      }],
+      ['v8_enable_pointer_compression == 1', {
+        'defines': ['V8_COMPRESS_POINTERS'],
+      }],
+      ['v8_enable_pointer_compression == 1 or v8_enable_31bit_smis_on_64bit_arch == 1', {
+        'defines': ['V8_31BIT_SMIS_ON_64BIT_ARCH'],
       }],
       ['OS == "win"', {
         'defines': [
@@ -342,6 +349,7 @@
       [ 'OS in "linux freebsd openbsd solaris android aix cloudabi"', {
         'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
         'cflags_cc': [ '-fno-rtti', '-fno-exceptions', '-std=gnu++1y' ],
+        'defines': [ '__STDC_FORMAT_MACROS' ],
         'ldflags': [ '-rdynamic' ],
         'target_conditions': [
           # The 1990s toolchain on SmartOS can't handle thin archives.
@@ -373,10 +381,6 @@
           [ 'target_arch=="ppc64" and OS!="aix"', {
             'cflags': [ '-m64', '-mminimal-toc' ],
             'ldflags': [ '-m64' ],
-          }],
-          [ 'target_arch=="s390"', {
-            'cflags': [ '-m31', '-march=z196' ],
-            'ldflags': [ '-m31', '-march=z196' ],
           }],
           [ 'target_arch=="s390x"', {
             'cflags': [ '-m64', '-march=z196' ],
@@ -411,6 +415,15 @@
               '-Wl,-brtl',
             ],
           }, {                                             # else it's `AIX`
+            # Disable the following compiler warning:
+            #
+            #   warning: visibility attribute not supported in this
+            #   configuration; ignored [-Wattributes]
+            #
+            # This is gcc complaining about __attribute((visibility("default"))
+            # in static library builds. Legitimate but harmless and it drowns
+            # out more relevant warnings.
+            'cflags': [ '-Wno-attributes' ],
             'ldflags': [
               '-Wl,-blibpath:/usr/lib:/lib:/opt/freeware/lib/pthread/ppc64',
             ],
@@ -422,6 +435,10 @@
           ['_toolset=="target"', {
             'defines': [ '_GLIBCXX_USE_C99_MATH' ],
             'libraries': [ '-llog' ],
+          }],
+          ['_toolset=="host"', {
+            'cflags': [ '-pthread' ],
+            'ldflags': [ '-pthread' ],
           }],
         ],
       }],
@@ -436,7 +453,7 @@
           'GCC_ENABLE_CPP_RTTI': 'NO',              # -fno-rtti
           'GCC_ENABLE_PASCAL_STRINGS': 'NO',        # No -mpascal-strings
           'PREBINDING': 'NO',                       # No -Wl,-prebind
-          'MACOSX_DEPLOYMENT_TARGET': '10.10',      # -mmacosx-version-min=10.10
+          'MACOSX_DEPLOYMENT_TARGET': '10.13',      # -mmacosx-version-min=10.13
           'USE_HEADERMAP': 'NO',
           'OTHER_CFLAGS': [
             '-fno-strict-aliasing',
@@ -480,6 +497,18 @@
       ['OS=="freebsd"', {
         'ldflags': [
           '-Wl,--export-dynamic',
+        ],
+      }],
+      # if node is built as an executable,
+      #      the openssl mechanism for keeping itself "dload"-ed to ensure proper
+      #      atexit cleanup does not apply
+      ['node_shared_openssl!="true" and node_shared!="true"', {
+        'defines': [
+          # `OPENSSL_NO_PINSHARED` prevents openssl from dload
+          #      current node executable,
+          #      see https://github.com/nodejs/node/pull/21848
+          #      or https://github.com/nodejs/node/issues/27925
+          'OPENSSL_NO_PINSHARED'
         ],
       }],
       ['node_shared_openssl!="true"', {

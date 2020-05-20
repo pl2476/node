@@ -2,8 +2,11 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
+const util = require('util');
+const cpus = os.cpus();
 
 function findReports(pid, dir) {
   // Default filenames are of the form
@@ -21,29 +24,41 @@ function findReports(pid, dir) {
   return results;
 }
 
-function validate(report) {
-  const data = fs.readFileSync(report, 'utf8');
-
-  validateContent(data);
+function validate(filepath) {
+  const report = fs.readFileSync(filepath, 'utf8');
+  if (process.report.compact) {
+    const end = report.indexOf('\n');
+    assert.strictEqual(end, report.length - 1);
+  }
+  validateContent(JSON.parse(report));
 }
 
-function validateContent(data) {
+function validateContent(report) {
+  if (typeof report === 'string') {
+    try {
+      report = JSON.parse(report);
+    } catch {
+      throw new TypeError(
+        'validateContent() expects a JSON string or JavaScript Object');
+    }
+  }
   try {
-    _validateContent(data);
+    _validateContent(report);
   } catch (err) {
-    err.stack += `\n------\nFailing Report:\n${data}`;
+    try {
+      err.stack += util.format('\n------\nFailing Report:\n%O', report);
+    } catch {}
     throw err;
   }
 }
 
-function _validateContent(data) {
+function _validateContent(report) {
   const isWindows = process.platform === 'win32';
-  const report = JSON.parse(data);
 
   // Verify that all sections are present as own properties of the report.
   const sections = ['header', 'javascriptStack', 'nativeStack',
                     'javascriptHeap', 'libuv', 'environmentVariables',
-                    'sharedObjects', 'resourceUsage'];
+                    'sharedObjects', 'resourceUsage', 'workers'];
   if (!isWindows)
     sections.push('userLimits');
 
@@ -62,9 +77,11 @@ function _validateContent(data) {
                         'dumpEventTimeStamp', 'processId', 'commandLine',
                         'nodejsVersion', 'wordSize', 'arch', 'platform',
                         'componentVersions', 'release', 'osName', 'osRelease',
-                        'osVersion', 'osMachine', 'host', 'glibcVersionRuntime',
-                        'glibcVersionCompiler', 'cwd'];
+                        'osVersion', 'osMachine', 'cpus', 'host',
+                        'glibcVersionRuntime', 'glibcVersionCompiler', 'cwd',
+                        'reportVersion', 'networkInterfaces', 'threadId'];
   checkForUnknownFields(header, headerFields);
+  assert.strictEqual(header.reportVersion, 2);  // Increment as needed.
   assert.strictEqual(typeof header.event, 'string');
   assert.strictEqual(typeof header.trigger, 'string');
   assert(typeof header.filename === 'string' || header.filename === null);
@@ -72,6 +89,7 @@ function _validateContent(data) {
                         'Invalid Date');
   assert(String(+header.dumpEventTimeStamp), header.dumpEventTimeStamp);
   assert(Number.isSafeInteger(header.processId));
+  assert(Number.isSafeInteger(header.threadId) || header.threadId === null);
   assert.strictEqual(typeof header.cwd, 'string');
   assert(Array.isArray(header.commandLine));
   header.commandLine.forEach((arg) => {
@@ -87,6 +105,42 @@ function _validateContent(data) {
   assert.strictEqual(header.osRelease, os.release());
   assert.strictEqual(typeof header.osVersion, 'string');
   assert.strictEqual(typeof header.osMachine, 'string');
+  assert(Array.isArray(header.cpus));
+  assert.strictEqual(header.cpus.length, cpus.length);
+  header.cpus.forEach((cpu) => {
+    assert.strictEqual(typeof cpu.model, 'string');
+    assert.strictEqual(typeof cpu.speed, 'number');
+    assert.strictEqual(typeof cpu.user, 'number');
+    assert.strictEqual(typeof cpu.nice, 'number');
+    assert.strictEqual(typeof cpu.sys, 'number');
+    assert.strictEqual(typeof cpu.idle, 'number');
+    assert.strictEqual(typeof cpu.irq, 'number');
+    assert(cpus.some((c) => {
+      return c.model === cpu.model;
+    }));
+  });
+
+  assert(Array.isArray(header.networkInterfaces));
+  header.networkInterfaces.forEach((iface) => {
+    assert.strictEqual(typeof iface.name, 'string');
+    assert.strictEqual(typeof iface.internal, 'boolean');
+    assert(/^([0-9A-F][0-9A-F]:){5}[0-9A-F]{2}$/i.test(iface.mac));
+
+    if (iface.family === 'IPv4') {
+      assert.strictEqual(net.isIPv4(iface.address), true);
+      assert.strictEqual(net.isIPv4(iface.netmask), true);
+      assert.strictEqual(iface.scopeid, undefined);
+    } else if (iface.family === 'IPv6') {
+      assert.strictEqual(net.isIPv6(iface.address), true);
+      assert.strictEqual(net.isIPv6(iface.netmask), true);
+      assert(Number.isInteger(iface.scopeid));
+    } else {
+      assert.strictEqual(iface.family, 'unknown');
+      assert.strictEqual(iface.address, undefined);
+      assert.strictEqual(iface.netmask, undefined);
+      assert.strictEqual(iface.scopeid, undefined);
+    }
+  });
   assert.strictEqual(header.host, os.hostname());
 
   // Verify the format of the javascriptStack section.
@@ -205,6 +259,10 @@ function _validateContent(data) {
   report.sharedObjects.forEach((sharedObject) => {
     assert.strictEqual(typeof sharedObject, 'string');
   });
+
+  // Verify the format of the workers section.
+  assert(Array.isArray(report.workers));
+  report.workers.forEach(_validateContent);
 }
 
 function checkForUnknownFields(actual, expected) {

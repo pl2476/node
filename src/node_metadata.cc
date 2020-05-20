@@ -1,6 +1,7 @@
 #include "node_metadata.h"
 #include "ares.h"
 #include "brotli/encode.h"
+#include "llhttp.h"
 #include "nghttp2/nghttp2ver.h"
 #include "node.h"
 #include "util.h"
@@ -34,8 +35,10 @@ std::string GetOpenSSLVersion() {
   // sample openssl version string format
   // for reference: "OpenSSL 1.1.0i 14 Aug 2018"
   char buf[128];
-  const int start = search(OPENSSL_VERSION_TEXT, 0, ' ') + 1;
-  const int end = search(OPENSSL_VERSION_TEXT + start, start, ' ');
+  const char* etext = OPENSSL_VERSION_TEXT;
+  const int start = search(etext, 0, ' ') + 1;
+  etext += start;
+  const int end = search(etext, start, ' ');
   const int len = end - start;
   snprintf(buf, sizeof(buf), "%.*s", len, &OPENSSL_VERSION_TEXT[start]);
   return std::string(buf);
@@ -70,8 +73,12 @@ Metadata::Versions::Versions() {
   modules = NODE_STRINGIFY(NODE_MODULE_VERSION);
   nghttp2 = NGHTTP2_VERSION;
   napi = NODE_STRINGIFY(NAPI_VERSION);
-  llhttp = per_process::llhttp_version;
-  http_parser = per_process::http_parser_version;
+  llhttp =
+      NODE_STRINGIFY(LLHTTP_VERSION_MAJOR)
+      "."
+      NODE_STRINGIFY(LLHTTP_VERSION_MINOR)
+      "."
+      NODE_STRINGIFY(LLHTTP_VERSION_PATCH);
 
   brotli =
     std::to_string(BrotliEncoderVersion() >> 24) +

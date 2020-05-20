@@ -4,9 +4,9 @@
 
 #include <cstdint>
 
-#include "src/assembler-inl.h"
 #include "src/base/overflowing-math.h"
-#include "src/objects-inl.h"
+#include "src/codegen/assembler-inl.h"
+#include "src/objects/objects-inl.h"
 #include "src/wasm/wasm-objects.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/compiler/value-helper.h"
@@ -32,26 +32,27 @@ namespace {
 template <typename T>
 class ArgPassingHelper {
  public:
-  ArgPassingHelper(WasmRunnerBase& runner, WasmFunctionCompiler& inner_compiler,
+  ArgPassingHelper(WasmRunnerBase* runner, WasmFunctionCompiler* inner_compiler,
                    std::initializer_list<uint8_t> bytes_inner_function,
                    std::initializer_list<uint8_t> bytes_outer_function,
                    const T& expected_lambda)
-      : isolate_(runner.main_isolate()),
+      : isolate_(runner->main_isolate()),
         expected_lambda_(expected_lambda),
         debug_info_(WasmInstanceObject::GetOrCreateDebugInfo(
-            runner.builder().instance_object())) {
+            runner->builder().instance_object())) {
     std::vector<uint8_t> inner_code{bytes_inner_function};
-    inner_compiler.Build(inner_code.data(),
-                         inner_code.data() + inner_code.size());
+    inner_compiler->Build(inner_code.data(),
+                          inner_code.data() + inner_code.size());
 
     std::vector<uint8_t> outer_code{bytes_outer_function};
-    runner.Build(outer_code.data(), outer_code.data() + outer_code.size());
+    runner->Build(outer_code.data(), outer_code.data() + outer_code.size());
 
-    int funcs_to_redict[] = {static_cast<int>(inner_compiler.function_index())};
-    runner.builder().SetExecutable();
+    int funcs_to_redict[] = {
+        static_cast<int>(inner_compiler->function_index())};
+    runner->builder().SetExecutable();
     WasmDebugInfo::RedirectToInterpreter(debug_info_,
                                          ArrayVector(funcs_to_redict));
-    main_fun_wrapper_ = runner.builder().WrapCode(runner.function_index());
+    main_fun_wrapper_ = runner->builder().WrapCode(runner->function_index());
   }
 
   template <typename... Args>
@@ -59,7 +60,7 @@ class ArgPassingHelper {
     Handle<Object> arg_objs[] = {isolate_->factory()->NewNumber(args)...};
 
     uint64_t num_interpreted_before = debug_info_->NumInterpretedCalls();
-    Handle<Object> global(isolate_->context()->global_object(), isolate_);
+    Handle<Object> global(isolate_->context().global_object(), isolate_);
     MaybeHandle<Object> retval = Execution::Call(
         isolate_, main_fun_wrapper_, global, arraysize(arg_objs), arg_objs);
     uint64_t num_interpreted_after = debug_info_->NumInterpretedCalls();
@@ -80,7 +81,7 @@ class ArgPassingHelper {
 
 template <typename T>
 static ArgPassingHelper<T> GetHelper(
-    WasmRunnerBase& runner, WasmFunctionCompiler& inner_compiler,
+    WasmRunnerBase* runner, WasmFunctionCompiler* inner_compiler,
     std::initializer_list<uint8_t> bytes_inner_function,
     std::initializer_list<uint8_t> bytes_outer_function,
     const T& expected_lambda) {
@@ -92,11 +93,11 @@ static ArgPassingHelper<T> GetHelper(
 
 // Pass int32_t, return int32_t.
 TEST(TestArgumentPassing_int32) {
-  WasmRunner<int32_t, int32_t> runner(ExecutionTier::kOptimized);
+  WasmRunner<int32_t, int32_t> runner(ExecutionTier::kTurbofan);
   WasmFunctionCompiler& f2 = runner.NewFunction<int32_t, int32_t>();
 
   auto helper = GetHelper(
-      runner, f2,
+      &runner, &f2,
       {// Return 2*<0> + 1.
        WASM_I32_ADD(WASM_I32_MUL(WASM_I32V_1(2), WASM_GET_LOCAL(0)), WASM_ONE)},
       {// Call f2 with param <0>.
@@ -110,11 +111,11 @@ TEST(TestArgumentPassing_int32) {
 
 // Pass int64_t, return double.
 TEST(TestArgumentPassing_double_int64) {
-  WasmRunner<double, int32_t, int32_t> runner(ExecutionTier::kOptimized);
+  WasmRunner<double, int32_t, int32_t> runner(ExecutionTier::kTurbofan);
   WasmFunctionCompiler& f2 = runner.NewFunction<double, int64_t>();
 
   auto helper = GetHelper(
-      runner, f2,
+      &runner, &f2,
       {// Return (double)<0>.
        WASM_F64_SCONVERT_I64(WASM_GET_LOCAL(0))},
       {// Call f2 with param (<0> | (<1> << 32)).
@@ -143,11 +144,11 @@ TEST(TestArgumentPassing_double_int64) {
 // Pass double, return int64_t.
 TEST(TestArgumentPassing_int64_double) {
   // Outer function still returns double.
-  WasmRunner<double, double> runner(ExecutionTier::kOptimized);
+  WasmRunner<double, double> runner(ExecutionTier::kTurbofan);
   WasmFunctionCompiler& f2 = runner.NewFunction<int64_t, double>();
 
   auto helper = GetHelper(
-      runner, f2,
+      &runner, &f2,
       {// Return (int64_t)<0>.
        WASM_I64_SCONVERT_F64(WASM_GET_LOCAL(0))},
       {// Call f2 with param <0>, convert returned value back to double.
@@ -162,11 +163,11 @@ TEST(TestArgumentPassing_int64_double) {
 
 // Pass float, return double.
 TEST(TestArgumentPassing_float_double) {
-  WasmRunner<double, float> runner(ExecutionTier::kOptimized);
+  WasmRunner<double, float> runner(ExecutionTier::kTurbofan);
   WasmFunctionCompiler& f2 = runner.NewFunction<double, float>();
 
   auto helper = GetHelper(
-      runner, f2,
+      &runner, &f2,
       {// Return 2*(double)<0> + 1.
        WASM_F64_ADD(
            WASM_F64_MUL(WASM_F64(2), WASM_F64_CONVERT_F32(WASM_GET_LOCAL(0))),
@@ -180,10 +181,10 @@ TEST(TestArgumentPassing_float_double) {
 
 // Pass two doubles, return double.
 TEST(TestArgumentPassing_double_double) {
-  WasmRunner<double, double, double> runner(ExecutionTier::kOptimized);
+  WasmRunner<double, double, double> runner(ExecutionTier::kTurbofan);
   WasmFunctionCompiler& f2 = runner.NewFunction<double, double, double>();
 
-  auto helper = GetHelper(runner, f2,
+  auto helper = GetHelper(&runner, &f2,
                           {// Return <0> + <1>.
                            WASM_F64_ADD(WASM_GET_LOCAL(0), WASM_GET_LOCAL(1))},
                           {// Call f2 with params <0>, <1>.
@@ -200,12 +201,12 @@ TEST(TestArgumentPassing_double_double) {
 TEST(TestArgumentPassing_AllTypes) {
   // The second and third argument will be combined to an i64.
   WasmRunner<double, int32_t, int32_t, int32_t, float, double> runner(
-      ExecutionTier::kOptimized);
+      ExecutionTier::kTurbofan);
   WasmFunctionCompiler& f2 =
       runner.NewFunction<double, int32_t, int64_t, float, double>();
 
   auto helper = GetHelper(
-      runner, f2,
+      &runner, &f2,
       {
           // Convert all arguments to double, add them and return the sum.
           WASM_F64_ADD(          // <0+1+2> + <3>

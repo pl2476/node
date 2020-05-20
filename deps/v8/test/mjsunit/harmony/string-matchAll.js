@@ -2,10 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --harmony-string-matchall
-
 (function TestReceiverNonString() {
-  const iter = 'a'.matchAll(/./);
+  const iter = 'a'.matchAll(/./g);
   assertThrows(
     () => iter.next.call(0),
     TypeError
@@ -14,7 +12,7 @@
 
 
 (function TestAncestry() {
-  const iterProto = Object.getPrototypeOf('a'.matchAll(/./));
+  const iterProto = Object.getPrototypeOf('a'.matchAll(/./g));
   const arrProto = Object.getPrototypeOf([][Symbol.iterator]());
 
   assertSame(Object.getPrototypeOf(iterProto), Object.getPrototypeOf(arrProto));
@@ -26,20 +24,14 @@ function TestNoMatch(string, regex_or_string) {
   assertSame(undefined, next_result.value);
   assertTrue(next_result.done);
 }
-TestNoMatch('a', /b/);
 TestNoMatch('a', /b/g);
 TestNoMatch('a', 'b');
 
 
 (function NonGlobalRegex() {
-  const iter = 'ab'.matchAll(/./);
-  let next_result = iter.next();
-  assertEquals(['a'], next_result.value);
-  assertFalse(next_result.done);
-
-  next_result = iter.next();
-  assertEquals(undefined, next_result.value);
-  assertTrue(next_result.done);
+  assertThrows(
+      () => { const iter = 'ab'.matchAll(/./); },
+      TypeError);
 })();
 
 

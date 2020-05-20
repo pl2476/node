@@ -154,11 +154,18 @@ class GenericTestLoader(TestLoader):
     return [self.test_root]
 
   @property
-  def extension(self):
-    return ""
+  def extensions(self):
+    return []
+
+  def __find_extension(self, filename):
+    for extension in self.extensions:
+      if filename.endswith(extension):
+        return extension
+
+    return False
 
   def _should_filter_by_name(self, filename):
-    if not filename.endswith(self.extension):
+    if not self.__find_extension(filename):
       return True
 
     for suffix in self.excluded_suffixes:
@@ -171,10 +178,11 @@ class GenericTestLoader(TestLoader):
     return False
 
   def _filename_to_testname(self, filename):
-    if not self.extension:
+    extension = self.__find_extension(filename)
+    if not extension:
       return filename
 
-    return filename[:-len(self.extension)]
+    return filename[:-len(extension)]
 
   def _to_relpath(self, abspath, test_root):
     return os.path.relpath(abspath, test_root)
@@ -197,8 +205,8 @@ class GenericTestLoader(TestLoader):
 
 class JSTestLoader(GenericTestLoader):
   @property
-  def extension(self):
-    return ".js"
+  def extensions(self):
+    return [".js", ".mjs"]
 
 
 class TestGenerator(object):
@@ -241,15 +249,16 @@ def _load_testsuite_module(name, root):
 
 class TestSuite(object):
   @staticmethod
-  def Load(root, test_config):
+  def Load(root, test_config, framework_name):
     name = root.split(os.path.sep)[-1]
     with _load_testsuite_module(name, root) as module:
-      return module.GetSuite(name, root, test_config)
+      return module.GetSuite(name, root, test_config, framework_name)
 
-  def __init__(self, name, root, test_config):
+  def __init__(self, name, root, test_config, framework_name):
     self.name = name  # string
     self.root = root  # string containing path
     self.test_config = test_config
+    self.framework_name = framework_name  # name of the test runner impl
     self.tests = None  # list of TestCase objects
     self.statusfile = None
 

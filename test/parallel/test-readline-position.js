@@ -1,12 +1,14 @@
 // Flags: --expose-internals
 'use strict';
-require('../common');
+const common = require('../common');
 const { internalBinding } = require('internal/test/binding');
 const { PassThrough } = require('stream');
 const readline = require('readline');
 const assert = require('assert');
 
 const ctrlU = { ctrl: true, name: 'u' };
+
+common.skipIfDumbTerminal();
 
 {
   const input = new PassThrough();
@@ -37,7 +39,7 @@ const ctrlU = { ctrl: true, name: 'u' };
 
   for (const [cursor, string] of tests) {
     rl.write(string);
-    assert.strictEqual(rl._getCursorPos().cols, cursor);
+    assert.strictEqual(rl.getCursorPos().cols, cursor);
     rl.write(null, ctrlU);
   }
 }

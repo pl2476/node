@@ -36,6 +36,7 @@ server.on('connect', common.mustCall((req, socket, firstBodyChunk) => {
   assert.strictEqual(socket.listenerCount('data'), 0);
   assert.strictEqual(socket.listenerCount('end'), 1);
   assert.strictEqual(socket.listenerCount('error'), 0);
+  assert.strictEqual(socket.listenerCount('timeout'), 0);
 
   socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
 
@@ -53,14 +54,18 @@ server.listen(0, common.mustCall(() => {
   const req = http.request({
     port: server.address().port,
     method: 'CONNECT',
-    path: 'google.com:443'
+    path: 'google.com:443',
+    timeout: 20000
   }, common.mustNotCall());
 
   req.on('socket', common.mustCall((socket) => {
     assert.strictEqual(socket._httpMessage, req);
   }));
 
-  req.on('close', common.mustCall());
+  assert.strictEqual(req.destroyed, false);
+  req.on('close', common.mustCall(() => {
+    assert.strictEqual(req.destroyed, true);
+  }));
 
   req.on('connect', common.mustCall((res, socket, firstBodyChunk) => {
     // Make sure this request got removed from the pool.
@@ -80,6 +85,7 @@ server.listen(0, common.mustCall(() => {
     assert.strictEqual(socket.listenerCount('close'), 0);
     assert.strictEqual(socket.listenerCount('error'), 0);
     assert.strictEqual(socket.listenerCount('agentRemove'), 0);
+    assert.strictEqual(socket.listenerCount('timeout'), 0);
 
     let data = firstBodyChunk.toString();
     socket.on('data', (buf) => {

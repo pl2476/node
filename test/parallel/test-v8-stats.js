@@ -8,6 +8,8 @@ const keys = [
   'does_zap_garbage',
   'heap_size_limit',
   'malloced_memory',
+  'number_of_detached_contexts',
+  'number_of_native_contexts',
   'peak_malloced_memory',
   'total_available_size',
   'total_heap_size',
@@ -17,6 +19,18 @@ const keys = [
 assert.deepStrictEqual(Object.keys(s).sort(), keys);
 keys.forEach(function(key) {
   assert.strictEqual(typeof s[key], 'number');
+});
+
+
+const heapCodeStatistics = v8.getHeapCodeStatistics();
+const heapCodeStatisticsKeys = [
+  'bytecode_and_metadata_size',
+  'code_and_metadata_size',
+  'external_script_source_size'];
+assert.deepStrictEqual(Object.keys(heapCodeStatistics).sort(),
+                       heapCodeStatisticsKeys);
+heapCodeStatisticsKeys.forEach(function(key) {
+  assert.strictEqual(typeof heapCodeStatistics[key], 'number');
 });
 
 

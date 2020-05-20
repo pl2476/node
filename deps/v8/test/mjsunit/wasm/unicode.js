@@ -9,7 +9,7 @@ function checkImport(
   var builder = new WasmModuleBuilder();
   builder.addImport(imported_module_name, imported_function_name, kSig_i_i);
   builder.addFunction('call_imp', kSig_i_i)
-      .addBody([kExprGetLocal, 0, kExprCallFunction, 0])
+      .addBody([kExprLocalGet, 0, kExprCallFunction, 0])
       .exportFunc();
 
   let imp = i => i + 3;
@@ -29,10 +29,10 @@ function checkExports(
     exported_name_add) {
   var builder = new WasmModuleBuilder();
   builder.addFunction(internal_name_mul, kSig_i_ii)
-      .addBody([kExprGetLocal, 0, kExprGetLocal, 1, kExprI32Mul])
+      .addBody([kExprLocalGet, 0, kExprLocalGet, 1, kExprI32Mul])
       .exportAs(exported_name_mul);
   builder.addFunction(internal_name_add, kSig_i_ii)
-      .addBody([kExprGetLocal, 0, kExprGetLocal, 1, kExprI32Add])
+      .addBody([kExprLocalGet, 0, kExprLocalGet, 1, kExprI32Add])
       .exportAs(exported_name_add);
 
   let instance = builder.instantiate();
@@ -51,7 +51,7 @@ checkExports('☺☺mul☺☺', '☺☺mul☺☺', '☺☺add☺☺', '☺☺add
   builder.addFunction('three snowmen: ☃☃☃', kSig_i_v).addBody([]).exportFunc();
   assertThrows(
       () => builder.instantiate(), WebAssembly.CompileError,
-      /Compiling wasm function "three snowmen: ☃☃☃" failed: /);
+      /Compiling function #0:"three snowmen: ☃☃☃" failed: /);
 })();
 
 (function errorMessageUnicodeInImportModuleName() {

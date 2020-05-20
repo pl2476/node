@@ -4,6 +4,98 @@
 static double value_ = 1;
 static double static_value_ = 10;
 
+static napi_value TestDefineClass(napi_env env,
+                                  napi_callback_info info) {
+  napi_status status;
+  napi_value result, return_value;
+
+  napi_property_descriptor property_descriptor = {
+    "TestDefineClass",
+    NULL,
+    TestDefineClass,
+    NULL,
+    NULL,
+    NULL,
+    napi_enumerable | napi_static,
+    NULL};
+
+  NAPI_CALL(env, napi_create_object(env, &return_value));
+
+  status = napi_define_class(NULL,
+                             "TrackedFunction",
+                             NAPI_AUTO_LENGTH,
+                             TestDefineClass,
+                             NULL,
+                             1,
+                             &property_descriptor,
+                             &result);
+
+  add_returned_status(env,
+                      "envIsNull",
+                      return_value,
+                      "Invalid argument",
+                      napi_invalid_arg,
+                      status);
+
+  napi_define_class(env,
+                    NULL,
+                    NAPI_AUTO_LENGTH,
+                    TestDefineClass,
+                    NULL,
+                    1,
+                    &property_descriptor,
+                    &result);
+
+  add_last_status(env, "nameIsNull", return_value);
+
+  napi_define_class(env,
+                    "TrackedFunction",
+                    NAPI_AUTO_LENGTH,
+                    NULL,
+                    NULL,
+                    1,
+                    &property_descriptor,
+                    &result);
+
+  add_last_status(env, "cbIsNull", return_value);
+
+  napi_define_class(env,
+                    "TrackedFunction",
+                    NAPI_AUTO_LENGTH,
+                    TestDefineClass,
+                    NULL,
+                    1,
+                    &property_descriptor,
+                    &result);
+
+  add_last_status(env, "cbDataIsNull", return_value);
+
+  napi_define_class(env,
+                    "TrackedFunction",
+                    NAPI_AUTO_LENGTH,
+                    TestDefineClass,
+                    NULL,
+                    1,
+                    NULL,
+                    &result);
+
+  add_last_status(env, "propertiesIsNull", return_value);
+
+
+  napi_define_class(env,
+                    "TrackedFunction",
+                    NAPI_AUTO_LENGTH,
+                    TestDefineClass,
+                    NULL,
+                    1,
+                    &property_descriptor,
+                    NULL);
+
+  add_last_status(env, "resultIsNull", return_value);
+
+  return return_value;
+}
+
 static napi_value GetValue(napi_env env, napi_callback_info info) {
   size_t argc = 0;
   NAPI_CALL(env, napi_get_cb_info(env, info, &argc, NULL, NULL, NULL));
@@ -74,17 +166,26 @@ napi_value Init(napi_env env, napi_value exports) {
       env, "MyObject_Extra", 8, NewExtra, NULL, 0, NULL, &cons));
 
   napi_property_descriptor properties[] = {
-    { "echo", 0, Echo, 0, 0, 0, napi_enumerable, 0 },
-    { "readwriteValue", 0, 0, 0, 0, number, napi_enumerable | napi_writable, 0 },
-    { "readonlyValue", 0, 0, 0, 0, number, napi_enumerable, 0},
-    { "hiddenValue", 0, 0, 0, 0, number, napi_default, 0},
-    { "readwriteAccessor1", 0, 0, GetValue, SetValue, 0, napi_default, 0},
-    { "readwriteAccessor2", 0, 0, GetValue, SetValue, 0, napi_writable, 0},
-    { "readonlyAccessor1", 0, 0, GetValue, NULL, 0, napi_default, 0},
-    { "readonlyAccessor2", 0, 0, GetValue, NULL, 0, napi_writable, 0},
-    { "staticReadonlyAccessor1", 0, 0, GetStaticValue, NULL, 0,
-        napi_default | napi_static, 0},
-    { "constructorName", 0, 0, 0, 0, cons, napi_enumerable | napi_static, 0 },
+    { "echo", NULL, Echo, NULL, NULL, NULL, napi_enumerable, NULL },
+    { "readwriteValue", NULL, NULL, NULL, NULL, number,
+        napi_enumerable | napi_writable, NULL },
+    { "readonlyValue", NULL, NULL, NULL, NULL, number, napi_enumerable,
+        NULL },
+    { "hiddenValue", NULL, NULL, NULL, NULL, number, napi_default, NULL },
+    { "readwriteAccessor1", NULL, NULL, GetValue, SetValue, NULL, napi_default,
+        NULL },
+    { "readwriteAccessor2", NULL, NULL, GetValue, SetValue, NULL,
+        napi_writable, NULL },
+    { "readonlyAccessor1", NULL, NULL, GetValue, NULL, NULL, napi_default,
+        NULL },
+    { "readonlyAccessor2", NULL, NULL, GetValue, NULL, NULL, napi_writable,
+        NULL },
+    { "staticReadonlyAccessor1", NULL, NULL, GetStaticValue, NULL, NULL,
+        napi_default | napi_static, NULL},
+    { "constructorName", NULL, NULL, NULL, NULL, cons,
+        napi_enumerable | napi_static, NULL },
+    { "TestDefineClass", NULL, TestDefineClass, NULL, NULL, NULL,
+        napi_enumerable | napi_static, NULL },
   };
 
   NAPI_CALL(env, napi_define_class(env, "MyObject", NAPI_AUTO_LENGTH, New,

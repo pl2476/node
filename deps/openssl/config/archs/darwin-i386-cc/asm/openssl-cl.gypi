@@ -15,12 +15,11 @@
       'RC4_ASM',
       'MD5_ASM',
       'RMD160_ASM',
-      'AES_ASM',
+      'AESNI_ASM',
       'VPAES_ASM',
       'WHIRLPOOL_ASM',
       'GHASH_ASM',
       'ECP_NISTZ256_ASM',
-      'PADLOCK_ASM',
       'POLY1305_ASM',
     ],
     'openssl_cflags_darwin-i386-cc': [

@@ -16,7 +16,7 @@ class HeapObject;
 class SnapshotByteSink;
 class ReadOnlySerializer;
 
-class StartupSerializer : public RootsSerializer {
+class V8_EXPORT_PRIVATE StartupSerializer : public RootsSerializer {
  public:
   StartupSerializer(Isolate* isolate, ReadOnlySerializer* read_only_serializer);
   ~StartupSerializer() override;
@@ -40,6 +40,10 @@ class StartupSerializer : public RootsSerializer {
   // emits a PartialSnapshotCache bytecode into |sink|.
   void SerializeUsingPartialSnapshotCache(SnapshotByteSink* sink,
                                           HeapObject obj);
+
+  // The per-heap dirty FinalizationRegistry list is weak and not serialized. No
+  // JSFinalizationRegistries should be used during startup.
+  void CheckNoDirtyFinalizationRegistries();
 
  private:
   void SerializeObject(HeapObject o) override;

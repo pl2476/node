@@ -4,19 +4,19 @@
     "path": "console"
   },
   "encoding": {
-    "commit": "a093a659ed118112138f8a1ffba97a66c1ea8235",
+    "commit": "5059d2c77703d67d2f76931b44e6d2437526b6e9",
     "path": "encoding"
   },
   "url": {
-    "commit": "75b0f336c50105c6fea47ad253d57219dfa744d3",
+    "commit": "418f7fabebeeb642e79e05b48ffde1a601c7e058",
     "path": "url"
   },
   "resources": {
-    "commit": "679a364421ce3704289df21e1ff985c14b360981",
+    "commit": "e1fddfbf801e7cce9cac5645e992194e4059ef56",
     "path": "resources"
   },
   "interfaces": {
-    "commit": "712c9f275e83997884749dbcaa503f12c0ff5bba",
+    "commit": "8ada332aeac03764f73ec7ff66f682c5c0b454b4",
     "path": "interfaces"
   },
   "html/webappapis/microtask-queuing": {
@@ -26,5 +26,9 @@
   "html/webappapis/timers": {
     "commit": "ddfe9c089bab565a9d3aa37bdef63d8012c1a94c",
     "path": "html/webappapis/timers"
+  },
+  "hr-time": {
+    "commit": "a5d1774ecf41751d1c9357c27c709ee33bf3e279",
+    "path": "hr-time"
   }
 }

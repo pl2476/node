@@ -91,14 +91,14 @@ class WorkerSession extends EventEmitter {
       this.emit(message.method, message);
       return;
     }
-    const callback = this._requestCallbacks.get(message.id);
-    if (callback) {
-      this._requestCallbacks.delete(message.id);
-      if (message.error)
-        callback[1](message.error.message);
-      else
-        callback[0](message.result);
-    }
+    if (!this._requestCallbacks.has(message.id))
+      return;
+    const [ resolve, reject ] = this._requestCallbacks.get(message.id);
+    this._requestCallbacks.delete(message.id);
+    if (message.error)
+      reject(new Error(message.error.message));
+    else
+      resolve(message.result);
   }
 
   async waitForBreakAfterCommand(command, script, line) {
@@ -144,7 +144,7 @@ async function testBasicWorkerDebug(session, post) {
   assert.strictEqual(waitingForDebugger, true);
   const detached = waitForWorkerDetach(session, sessionId);
   const workerSession = new WorkerSession(session, sessionId);
-  const contextEvents = Promise.all([
+  const contextEventPromises = Promise.all([
     waitForEvent(workerSession, 'Runtime.executionContextCreated'),
     waitForEvent(workerSession, 'Runtime.executionContextDestroyed')
   ]);
@@ -156,9 +156,10 @@ async function testBasicWorkerDebug(session, post) {
     'Runtime.runIfWaitingForDebugger', __filename, 1);
   await workerSession.waitForBreakAfterCommand(
     'Debugger.resume', __filename, 26);  // V8 line number is zero-based
-  assert.strictEqual(await consolePromise, workerMessage);
+  const msg = await consolePromise;
+  assert.strictEqual(msg, workerMessage);
   workerSession.post('Debugger.resume');
-  await Promise.all([worker, detached, contextEvents]);
+  await Promise.all([worker, detached, contextEventPromises]);
 }
 
 async function testNoWaitOnStart(session, post) {
@@ -206,7 +207,59 @@ async function testTwoWorkers(session, post) {
   await Promise.all([worker1Exited, worker2Exited]);
 }
 
-async function test() {
+async function testWaitForDisconnectInWorker(session, post) {
+  console.log('Test NodeRuntime.waitForDisconnect in worker');
+
+  const sessionWithoutWaiting = new Session();
+  sessionWithoutWaiting.connect();
+  const sessionWithoutWaitingPost = doPost.bind(null, sessionWithoutWaiting);
+
+  await sessionWithoutWaitingPost('NodeWorker.enable', {
+    waitForDebuggerOnStart: true
+  });
+  await post('NodeWorker.enable', { waitForDebuggerOnStart: true });
+
+  const attached = [
+    waitForWorkerAttach(session),
+    waitForWorkerAttach(sessionWithoutWaiting)
+  ];
+
+  let worker = null;
+  const exitPromise = runWorker(2, (w) => worker = w);
+
+  const [{ sessionId: sessionId1 }, { sessionId: sessionId2 }] =
+      await Promise.all(attached);
+
+  const workerSession1 = new WorkerSession(session, sessionId1);
+  const workerSession2 = new WorkerSession(sessionWithoutWaiting, sessionId2);
+
+  await workerSession2.post('Runtime.enable');
+  await workerSession1.post('Runtime.enable');
+  await workerSession1.post('NodeRuntime.notifyWhenWaitingForDisconnect', {
+    enabled: true
+  });
+  await workerSession1.post('Runtime.runIfWaitingForDebugger');
+
+  // Create the promises before sending the exit message to the Worker in order
+  // to avoid race conditions.
+  const disconnectPromise =
+    waitForEvent(workerSession1, 'NodeRuntime.waitingForDisconnect');
+  const executionContextDestroyedPromise =
+    waitForEvent(workerSession2, 'Runtime.executionContextDestroyed');
+  worker.postMessage('resume');
+
+  await disconnectPromise;
+  post('NodeWorker.detach', { sessionId: sessionId1 });
+  await executionContextDestroyedPromise;
+
+  await exitPromise;
+
+  await post('NodeWorker.disable');
+  await sessionWithoutWaitingPost('NodeWorker.disable');
+  sessionWithoutWaiting.disconnect();
+}
+
+(async function test() {
   const session = new Session();
   session.connect();
   const post = doPost.bind(null, session);
@@ -218,10 +271,14 @@ async function test() {
   await runWorker(1);
 
   await testNoWaitOnStart(session, post);
+
   await testTwoWorkers(session, post);
+
+  await testWaitForDisconnectInWorker(session, post);
 
   session.disconnect();
   console.log('Test done');
-}
-
-test();
+})().then(common.mustCall()).catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

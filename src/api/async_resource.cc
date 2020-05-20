@@ -4,7 +4,6 @@
 namespace node {
 
 using v8::Function;
-using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
@@ -25,7 +24,6 @@ AsyncResource::AsyncResource(Isolate* isolate,
 
 AsyncResource::~AsyncResource() {
   EmitAsyncDestroy(env_, async_context_);
-  resource_.Reset();
 }
 
 MaybeLocal<Value> AsyncResource::MakeCallback(Local<Function> callback,

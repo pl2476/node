@@ -27,7 +27,7 @@ const types = [
 ];
 
 const bench = common.createBenchmark(main, {
-  buffer: ['fast', 'slow'],
+  buffer: ['fast'],
   type: types,
   n: [1e6]
 });
@@ -71,9 +71,10 @@ const byteLength = {
 };
 
 function main({ n, buf, type }) {
-  const clazz = buf === 'fast' ? Buffer : require('buffer').SlowBuffer;
-  const buff = new clazz(8);
-  const fn = `write${type || 'UInt8'}`;
+  const buff = buf === 'fast' ?
+    Buffer.alloc(8) :
+    require('buffer').SlowBuffer(8);
+  const fn = `write${type}`;
 
   if (!/\d/.test(fn))
     benchSpecialInt(buff, fn, n);
@@ -88,7 +89,7 @@ function main({ n, buf, type }) {
 function benchBigInt(buff, fn, n) {
   const m = mod[fn];
   bench.start();
-  for (var i = 0n; i !== n; i++) {
+  for (let i = 0n; i !== n; i++) {
     buff[fn](i & m, 0);
   }
   bench.end(Number(n));
@@ -97,7 +98,7 @@ function benchBigInt(buff, fn, n) {
 function benchInt(buff, fn, n) {
   const m = mod[fn];
   bench.start();
-  for (var i = 0; i !== n; i++) {
+  for (let i = 0; i !== n; i++) {
     buff[fn](i & m, 0);
   }
   bench.end(n);
@@ -107,7 +108,7 @@ function benchSpecialInt(buff, fn, n) {
   const m = mod[fn];
   const byte = byteLength[fn];
   bench.start();
-  for (var i = 0; i !== n; i++) {
+  for (let i = 0; i !== n; i++) {
     buff[fn](i & m, 0, byte);
   }
   bench.end(n);
@@ -115,7 +116,7 @@ function benchSpecialInt(buff, fn, n) {
 
 function benchFloat(buff, fn, n) {
   bench.start();
-  for (var i = 0; i !== n; i++) {
+  for (let i = 0; i !== n; i++) {
     buff[fn](i, 0);
   }
   bench.end(n);

@@ -33,7 +33,9 @@ namespace node {
 
 #define NODE_ASYNC_NON_CRYPTO_PROVIDER_TYPES(V)                               \
   V(NONE)                                                                     \
+  V(DIRHANDLE)                                                                \
   V(DNSCHANNEL)                                                               \
+  V(ELDHISTOGRAM)                                                             \
   V(FILEHANDLE)                                                               \
   V(FILEHANDLECLOSEREQ)                                                       \
   V(FSEVENTWRAP)                                                              \
@@ -66,7 +68,9 @@ namespace node {
   V(TTYWRAP)                                                                  \
   V(UDPSENDWRAP)                                                              \
   V(UDPWRAP)                                                                  \
+  V(SIGINTWATCHDOG)                                                           \
   V(WORKER)                                                                   \
+  V(WORKERHEAPSNAPSHOT)                                                       \
   V(WRITEWRAP)                                                                \
   V(ZLIB)
 
@@ -130,9 +134,10 @@ class AsyncWrap : public BaseObject {
                          void* priv);
 
   static void GetAsyncId(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void PushAsyncIds(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void PopAsyncIds(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void PushAsyncContext(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void PopAsyncContext(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void AsyncReset(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetProviderType(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void QueueDestroyAsyncId(
     const v8::FunctionCallbackInfo<v8::Value>& args);
 
@@ -153,20 +158,16 @@ class AsyncWrap : public BaseObject {
   static void EmitTraceEventAfter(ProviderType type, double async_id);
   void EmitTraceEventDestroy();
 
-  static void DestroyAsyncIdsCallback(Environment* env, void* data);
+  static void DestroyAsyncIdsCallback(Environment* env);
 
   inline ProviderType provider_type() const;
   inline ProviderType set_provider_type(ProviderType provider);
 
   inline double get_async_id() const;
-
   inline double get_trigger_async_id() const;
 
   void AsyncReset(v8::Local<v8::Object> resource,
                   double execution_async_id = kInvalidAsyncId,
-                  bool silent = false);
-
-  void AsyncReset(double execution_async_id = kInvalidAsyncId,
                   bool silent = false);
 
   // Only call these within a valid HandleScope.
@@ -197,17 +198,8 @@ class AsyncWrap : public BaseObject {
   static v8::Local<v8::Object> GetOwner(Environment* env,
                                         v8::Local<v8::Object> obj);
 
-  // This is a simplified version of InternalCallbackScope that only runs
-  // the `before` and `after` hooks. Only use it when not actually calling
-  // back into JS; otherwise, use InternalCallbackScope.
-  class AsyncScope {
-   public:
-    explicit inline AsyncScope(AsyncWrap* wrap);
-    ~AsyncScope();
-
-   private:
-    AsyncWrap* wrap_ = nullptr;
-  };
+  bool IsDoneInitializing() const override;
+  v8::Local<v8::Object> GetResource();
 
  private:
   friend class PromiseWrap;
@@ -217,10 +209,17 @@ class AsyncWrap : public BaseObject {
             ProviderType provider,
             double execution_async_id,
             bool silent);
-  ProviderType provider_type_;
+  AsyncWrap(Environment* env,
+            v8::Local<v8::Object> promise,
+            ProviderType provider,
+            double execution_async_id,
+            double trigger_async_id);
+  ProviderType provider_type_ = PROVIDER_NONE;
+  bool init_hook_ran_ = false;
   // Because the values may be Reset(), cannot be made const.
   double async_id_ = kInvalidAsyncId;
   double trigger_async_id_;
+  v8::Global<v8::Object> resource_;
 };
 
 }  // namespace node

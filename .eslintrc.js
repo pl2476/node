@@ -8,6 +8,10 @@ const path = require('path');
 const NodePlugin = require('./tools/node_modules/eslint-plugin-node-core');
 NodePlugin.RULES_DIR = path.resolve(__dirname, 'tools', 'eslint-rules');
 
+// The Module._findPath() monkeypatching is to make it so that ESLint will work
+// if invoked by a globally-installed ESLint or ESLint installed elsewhere
+// rather than the one we ship. This makes it possible for IDEs to lint files
+// with our rules while people edit them.
 const ModuleFindPath = Module._findPath;
 const hacks = [
   'eslint-plugin-node-core',
@@ -39,6 +43,7 @@ module.exports = {
     {
       files: [
         'doc/api/esm.md',
+        'doc/api/modules.md',
         'test/es-module/test-esm-type-flag.js',
         'test/es-module/test-esm-type-flag-alias.js',
         '*.mjs',
@@ -66,7 +71,8 @@ module.exports = {
       line: {
         // Ignore all lines that have less characters than 20 and all lines that
         // start with something that looks like a variable name or code.
-        ignorePattern: '.{0,20}$|[a-z]+ ?[0-9A-Z_.(/=:[#-]|std',
+        // eslint-disable-next-line max-len
+        ignorePattern: '.{0,20}$|[a-z]+ ?[0-9A-Z_.(/=:[#-]|std|http|ssh|ftp|(let|var|const) [a-z_A-Z0-9]+ =|[b-z] |[a-z]*[0-9].* ',
         ignoreInlineComments: true,
         ignoreConsecutiveComments: true,
       },
@@ -79,6 +85,7 @@ module.exports = {
     'comma-style': 'error',
     'computed-property-spacing': 'error',
     'constructor-super': 'error',
+    'default-case-last': 'error',
     'dot-location': ['error', 'property'],
     'dot-notation': 'error',
     'eol-last': 'error',
@@ -108,17 +115,21 @@ module.exports = {
       tabWidth: 2,
     }],
     'new-parens': 'error',
+    'no-async-promise-executor': 'error',
     'no-class-assign': 'error',
     'no-confusing-arrow': 'error',
     'no-const-assign': 'error',
+    'no-constructor-return': 'error',
     'no-control-regex': 'error',
     'no-debugger': 'error',
     'no-delete-var': 'error',
     'no-dupe-args': 'error',
     'no-dupe-class-members': 'error',
     'no-dupe-keys': 'error',
+    'no-dupe-else-if': 'error',
     'no-duplicate-case': 'error',
     'no-duplicate-imports': 'error',
+    'no-else-return': ['error', { allowElseIf: true }],
     'no-empty-character-class': 'error',
     'no-ex-assign': 'error',
     'no-extra-boolean-cast': 'error',
@@ -141,7 +152,7 @@ module.exports = {
     'no-octal': 'error',
     'no-path-concat': 'error',
     'no-proto': 'error',
-    'no-redeclare': 'error',
+    'no-redeclare': ['error', { 'builtinGlobals': false }],
     'no-restricted-modules': ['error', 'sys'],
     /* eslint-disable max-len */
     'no-restricted-properties': [
@@ -180,34 +191,6 @@ module.exports = {
     'no-restricted-syntax': [
       'error',
       {
-        selector: "CallExpression[callee.property.name='deepStrictEqual'][arguments.2.type='Literal']",
-        message: 'Do not use a literal for the third argument of assert.deepStrictEqual()',
-      },
-      {
-        selector: "CallExpression[callee.property.name='doesNotThrow']",
-        message: 'Do not use `assert.doesNotThrow()`. Write the code without the wrapper and add a comment instead.',
-      },
-      {
-        selector: "CallExpression[callee.property.name='doesNotReject']",
-        message: 'Do not use `assert.doesNotReject()`. Write the code without the wrapper and add a comment instead.',
-      },
-      {
-        selector: "CallExpression[callee.property.name='rejects'][arguments.length<2]",
-        message: '`assert.rejects()` must be invoked with at least two arguments.',
-      },
-      {
-        selector: "CallExpression[callee.property.name='strictEqual'][arguments.2.type='Literal']",
-        message: 'Do not use a literal for the third argument of assert.strictEqual()',
-      },
-      {
-        selector: "CallExpression[callee.property.name='throws'][arguments.1.type='Literal']:not([arguments.1.regex])",
-        message: 'Use an object as second argument of `assert.throws()`.',
-      },
-      {
-        selector: "CallExpression[callee.property.name='throws'][arguments.length<2]",
-        message: '`assert.throws()` must be invoked with at least two arguments.',
-      },
-      {
         selector: "CallExpression[callee.name='setTimeout'][arguments.length<2]",
         message: '`setTimeout()` must be invoked with at least two arguments.',
       },
@@ -220,26 +203,16 @@ module.exports = {
         message: 'Use `new` keyword when throwing an `Error`.',
       },
       {
-        selector: "CallExpression[callee.property.name='notDeepStrictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
-        message: 'The first argument should be the `actual`, not the `expected` value.',
+        selector: "CallExpression[callee.name='isNaN']",
+        message: 'Use Number.isNaN() instead of the global isNaN() function.',
       },
-      {
-        selector: "CallExpression[callee.property.name='notStrictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
-        message: 'The first argument should be the `actual`, not the `expected` value.',
-      },
-      {
-        selector: "CallExpression[callee.property.name='deepStrictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
-        message: 'The first argument should be the `actual`, not the `expected` value.',
-      },
-      {
-        selector: "CallExpression[callee.property.name='strictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
-        message: 'The first argument should be the `actual`, not the `expected` value.',
-      }
     ],
     /* eslint-enable max-len */
     'no-return-await': 'error',
     'no-self-assign': 'error',
     'no-self-compare': 'error',
+    'no-setter-return': 'error',
+    'no-shadow-restricted-names': 'error',
     'no-tabs': 'error',
     'no-template-curly-in-string': 'error',
     'no-this-before-super': 'error',
@@ -258,6 +231,7 @@ module.exports = {
       functions: false,
       variables: false,
     }],
+    'no-useless-backreference': 'error',
     'no-useless-call': 'error',
     'no-useless-catch': 'error',
     'no-useless-concat': 'error',
@@ -271,6 +245,10 @@ module.exports = {
     'one-var': ['error', { initialized: 'never' }],
     'one-var-declaration-per-line': 'error',
     'operator-linebreak': ['error', 'after'],
+    'padding-line-between-statements': [
+      'error',
+      { blankLine: 'always', prev: 'function', next: 'function' },
+    ],
     'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
     'quotes': ['error', 'single', { avoidEscape: true }],
     'quote-props': ['error', 'consistent'],
@@ -309,5 +287,6 @@ module.exports = {
     TextEncoder: 'readable',
     TextDecoder: 'readable',
     queueMicrotask: 'readable',
+    globalThis: 'readable',
   },
 };

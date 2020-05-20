@@ -48,7 +48,10 @@ class ScavengerCollector {
 
   void ProcessWeakReferences(EphemeronTableList* ephemeron_table_list);
   void ClearYoungEphemerons(EphemeronTableList* ephemeron_table_list);
+  void ClearOldEphemerons();
   void HandleSurvivingNewLargeObjects();
+
+  void SweepArrayBufferExtensions();
 
   Isolate* const isolate_;
   Heap* const heap_;
@@ -116,7 +119,8 @@ class Scavenger {
 
   using CopiedList = Worklist<ObjectAndSize, kCopiedListSegmentSize>;
   Scavenger(ScavengerCollector* collector, Heap* heap, bool is_logging,
-            CopiedList* copied_list, PromotionList* promotion_list,
+            Worklist<MemoryChunk*, 64>* empty_chunks, CopiedList* copied_list,
+            PromotionList* promotion_list,
             EphemeronTableList* ephemeron_table_list, int task_id);
 
   // Entry point for scavenging an old generation page. For scavenging single
@@ -201,9 +205,11 @@ class Scavenger {
                                                       int object_size);
 
   void IterateAndScavengePromotedObject(HeapObject target, Map map, int size);
+  void RememberPromotedEphemeron(EphemeronHashTable table, int index);
 
   ScavengerCollector* const collector_;
   Heap* const heap_;
+  Worklist<MemoryChunk*, 64>::View empty_chunks_;
   PromotionList::View promotion_list_;
   CopiedList::View copied_list_;
   EphemeronTableList::View ephemeron_table_list_;
@@ -212,6 +218,8 @@ class Scavenger {
   size_t promoted_size_;
   LocalAllocator allocator_;
   SurvivingNewLargeObjectsMap surviving_new_large_objects_;
+
+  EphemeronRememberedSet ephemeron_remembered_set_;
   const bool is_logging_;
   const bool is_incremental_marking_;
   const bool is_compacting_;
@@ -251,6 +259,7 @@ class ScavengeVisitor final : public NewSpaceVisitor<ScavengeVisitor> {
   V8_INLINE void VisitCodeTarget(Code host, RelocInfo* rinfo) final;
   V8_INLINE void VisitEmbeddedPointer(Code host, RelocInfo* rinfo) final;
   V8_INLINE int VisitEphemeronHashTable(Map map, EphemeronHashTable object);
+  V8_INLINE int VisitJSArrayBuffer(Map map, JSArrayBuffer object);
 
  private:
   template <typename TSlot>

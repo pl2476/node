@@ -23,9 +23,11 @@
 
 // ========== local headers ==========
 
-#include "debug_utils.h"
+#include "debug_utils-inl.h"
 #include "env-inl.h"
+#include "memory_tracker-inl.h"
 #include "node_binding.h"
+#include "node_errors.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
 #include "node_metadata.h"
@@ -33,6 +35,7 @@
 #include "node_options-inl.h"
 #include "node_perf.h"
 #include "node_process.h"
+#include "node_report.h"
 #include "node_revert.h"
 #include "node_v8_platform-inl.h"
 #include "node_version.h"
@@ -46,6 +49,7 @@
 #endif
 
 #if HAVE_INSPECTOR
+#include "inspector_agent.h"
 #include "inspector_io.h"
 #endif
 
@@ -58,17 +62,22 @@
 #endif  // NODE_USE_V8_PLATFORM
 #include "v8-profiler.h"
 
-#ifdef NODE_ENABLE_VTUNE_PROFILING
-#include "../deps/v8/src/third_party/vtune/v8-vtune.h"
+#if HAVE_INSPECTOR
+#include "inspector/worker_inspector.h"  // ParentInspectorHandle
 #endif
 
-#ifdef NODE_ENABLE_LARGE_CODE_PAGES
 #include "large_pages/node_large_page.h"
+
+#if defined(__APPLE__) || defined(__linux__)
+#define NODE_USE_V8_WASM_TRAP_HANDLER 1
+#else
+#define NODE_USE_V8_WASM_TRAP_HANDLER 0
 #endif
 
-#ifdef NODE_REPORT
-#include "node_report.h"
-#endif
+#if NODE_USE_V8_WASM_TRAP_HANDLER
+#include <atomic>
+#include "v8-wasm-trap-handler-posix.h"
+#endif  // NODE_USE_V8_WASM_TRAP_HANDLER
 
 // ========== global C headers ==========
 
@@ -77,6 +86,7 @@
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
 #include <unicode/uvernum.h>
+#include <unicode/utypes.h>
 #endif
 
 
@@ -91,6 +101,7 @@
 #else
 #include <pthread.h>
 #include <sys/resource.h>  // getrlimit, setrlimit
+#include <termios.h>       // tcgetattr, tcsetattr
 #include <unistd.h>        // STDIN_FILENO, STDERR_FILENO
 #endif
 
@@ -109,22 +120,14 @@
 namespace node {
 
 using native_module::NativeModuleEnv;
-using options_parser::kAllowedInEnvironment;
-using options_parser::kDisallowedInEnvironment;
 
-using v8::Boolean;
-using v8::Context;
 using v8::EscapableHandleScope;
-using v8::Exception;
 using v8::Function;
 using v8::FunctionCallbackInfo;
-using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
-using v8::Maybe;
 using v8::MaybeLocal;
 using v8::Object;
-using v8::Script;
 using v8::String;
 using v8::Undefined;
 using v8::V8;
@@ -152,42 +155,11 @@ struct V8Platform v8_platform;
 }  // namespace per_process
 
 #ifdef __POSIX__
-static const unsigned kMaxSignal = 32;
-#endif
-
-void WaitForInspectorDisconnect(Environment* env) {
-#if HAVE_INSPECTOR
-  profiler::EndStartedProfilers(env);
-
-  if (env->inspector_agent()->IsActive()) {
-    // Restore signal dispositions, the app is done and is no longer
-    // capable of handling signals.
-#if defined(__POSIX__) && !defined(NODE_SHARED_MODE)
-    struct sigaction act;
-    memset(&act, 0, sizeof(act));
-    for (unsigned nr = 1; nr < kMaxSignal; nr += 1) {
-      if (nr == SIGKILL || nr == SIGSTOP || nr == SIGPROF)
-        continue;
-      act.sa_handler = (nr == SIGPIPE) ? SIG_IGN : SIG_DFL;
-      CHECK_EQ(0, sigaction(nr, &act, nullptr));
-    }
-#endif
-    env->inspector_agent()->WaitForDisconnect();
-  }
-#endif
-}
-
-void SignalExit(int signo) {
-  uv_tty_reset_mode();
-#ifdef __FreeBSD__
-  // FreeBSD has a nasty bug, see RegisterSignalHandler for details
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = SIG_DFL;
-  CHECK_EQ(sigaction(signo, &sa, nullptr), 0);
-#endif
+void SignalExit(int signo, siginfo_t* info, void* ucontext) {
+  ResetStdio();
   raise(signo);
 }
+#endif  // __POSIX__
 
 MaybeLocal<Value> ExecuteBootstrapper(Environment* env,
                                       const char* id,
@@ -197,20 +169,19 @@ MaybeLocal<Value> ExecuteBootstrapper(Environment* env,
   MaybeLocal<Function> maybe_fn =
       NativeModuleEnv::LookupAndCompile(env->context(), id, parameters, env);
 
-  if (maybe_fn.IsEmpty()) {
+  Local<Function> fn;
+  if (!maybe_fn.ToLocal(&fn)) {
     return MaybeLocal<Value>();
   }
 
-  Local<Function> fn = maybe_fn.ToLocalChecked();
   MaybeLocal<Value> result = fn->Call(env->context(),
                                       Undefined(env->isolate()),
                                       arguments->size(),
                                       arguments->data());
 
-  // If there was an error during bootstrap then it was either handled by the
-  // FatalException handler or it's unrecoverable (e.g. max call stack
-  // exceeded). Either way, clear the stack so that the AsyncCallbackScope
-  // destructor doesn't fail on the id check.
+  // If there was an error during bootstrap, it must be unrecoverable
+  // (e.g. max call stack exceeded). Clear the stack so that the
+  // AsyncCallbackScope destructor doesn't fail on the id check.
   // There are only two ways to have a stack size > 1: 1) the user manually
   // called MakeCallback or 2) user awaited during bootstrap, which triggered
   // _tickCallback().
@@ -221,124 +192,220 @@ MaybeLocal<Value> ExecuteBootstrapper(Environment* env,
   return scope.EscapeMaybe(result);
 }
 
-MaybeLocal<Value> RunBootstrapping(Environment* env) {
-  CHECK(!env->has_run_bootstrapping_code());
-
-  EscapableHandleScope scope(env->isolate());
-  Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
-
 #if HAVE_INSPECTOR
-  profiler::StartProfilers(env);
-#endif  // HAVE_INSPECTOR
+int Environment::InitializeInspector(
+    std::unique_ptr<inspector::ParentInspectorHandle> parent_handle) {
+  std::string inspector_path;
+  bool is_main = !parent_handle;
+  if (parent_handle) {
+    inspector_path = parent_handle->url();
+    inspector_agent_->SetParentHandle(std::move(parent_handle));
+  } else {
+    inspector_path = argv_.size() > 1 ? argv_[1].c_str() : "";
+  }
 
-  // Add a reference to the global object
-  Local<Object> global = context->Global();
+  CHECK(!inspector_agent_->IsListening());
+  // Inspector agent can't fail to start, but if it was configured to listen
+  // right away on the websocket port and fails to bind/etc, this will return
+  // false.
+  inspector_agent_->Start(inspector_path,
+                          options_->debug_options(),
+                          inspector_host_port(),
+                          is_main);
+  if (options_->debug_options().inspector_enabled &&
+      !inspector_agent_->IsListening()) {
+    return 12;  // Signal internal error
+  }
+
+  profiler::StartProfilers(this);
+
+  if (inspector_agent_->options().break_node_first_line) {
+    inspector_agent_->PauseOnNextJavascriptStatement("Break at bootstrap");
+  }
+
+  return 0;
+}
+#endif  // HAVE_INSPECTOR && NODE_USE_V8_PLATFORM
+
+#define ATOMIC_WAIT_EVENTS(V)                                               \
+  V(kStartWait,           "started")                                        \
+  V(kWokenUp,             "was woken up by another thread")                 \
+  V(kTimedOut,            "timed out")                                      \
+  V(kTerminatedExecution, "was stopped by terminated execution")            \
+  V(kAPIStopped,          "was stopped through the embedder API")           \
+  V(kNotEqual,            "did not wait because the values mismatched")     \
+
+static void AtomicsWaitCallback(Isolate::AtomicsWaitEvent event,
+                                Local<v8::SharedArrayBuffer> array_buffer,
+                                size_t offset_in_bytes, int64_t value,
+                                double timeout_in_ms,
+                                Isolate::AtomicsWaitWakeHandle* stop_handle,
+                                void* data) {
+  Environment* env = static_cast<Environment*>(data);
+
+  const char* message = "(unknown event)";
+  switch (event) {
+#define V(key, msg)                         \
+    case Isolate::AtomicsWaitEvent::key:    \
+      message = msg;                        \
+      break;
+    ATOMIC_WAIT_EVENTS(V)
+#undef V
+  }
+
+  fprintf(stderr,
+          "(node:%d) [Thread %" PRIu64 "] Atomics.wait(%p + %zx, %" PRId64
+              ", %.f) %s\n",
+          static_cast<int>(uv_os_getpid()),
+          env->thread_id(),
+          array_buffer->GetBackingStore()->Data(),
+          offset_in_bytes,
+          value,
+          timeout_in_ms,
+          message);
+}
+
+void Environment::InitializeDiagnostics() {
+  isolate_->GetHeapProfiler()->AddBuildEmbedderGraphCallback(
+      Environment::BuildEmbedderGraph, this);
+  if (options_->trace_uncaught)
+    isolate_->SetCaptureStackTraceForUncaughtExceptions(true);
+  if (options_->trace_atomics_wait) {
+    isolate_->SetAtomicsWaitCallback(AtomicsWaitCallback, this);
+    AddCleanupHook([](void* data) {
+      Environment* env = static_cast<Environment*>(data);
+      env->isolate()->SetAtomicsWaitCallback(nullptr, nullptr);
+    }, this);
+  }
 
 #if defined HAVE_DTRACE || defined HAVE_ETW
-  InitDTrace(env);
+  InitDTrace(this);
 #endif
+}
 
-  Local<Object> process = env->process_object();
-
-  // Setting global properties for the bootstrappers to use:
-  // - global
-  // Expose the global object as a property on itself
-  // (Allows you to set stuff on `global` from anywhere in JavaScript.)
-  global->Set(context, FIXED_ONE_BYTE_STRING(env->isolate(), "global"), global)
-      .Check();
-
-  // Store primordials setup by the per-context script in the environment.
-  Local<Object> per_context_bindings;
-  Local<Value> primordials;
-  if (!GetPerContextExports(context).ToLocal(&per_context_bindings) ||
-      !per_context_bindings->Get(context, env->primordials_string())
-           .ToLocal(&primordials) ||
-      !primordials->IsObject()) {
-    return MaybeLocal<Value>();
-  }
-  env->set_primordials(primordials.As<Object>());
-
-#if HAVE_INSPECTOR
-  if (env->options()->debug_options().break_node_first_line) {
-    env->inspector_agent()->PauseOnNextJavascriptStatement(
-        "Break at bootstrap");
-  }
-#endif  // HAVE_INSPECTOR
+MaybeLocal<Value> Environment::BootstrapInternalLoaders() {
+  EscapableHandleScope scope(isolate_);
 
   // Create binding loaders
   std::vector<Local<String>> loaders_params = {
-      env->process_string(),
-      FIXED_ONE_BYTE_STRING(isolate, "getLinkedBinding"),
-      FIXED_ONE_BYTE_STRING(isolate, "getInternalBinding"),
-      env->primordials_string()};
+      process_string(),
+      FIXED_ONE_BYTE_STRING(isolate_, "getLinkedBinding"),
+      FIXED_ONE_BYTE_STRING(isolate_, "getInternalBinding"),
+      primordials_string()};
   std::vector<Local<Value>> loaders_args = {
-      process,
-      env->NewFunctionTemplate(binding::GetLinkedBinding)
-          ->GetFunction(context)
+      process_object(),
+      NewFunctionTemplate(binding::GetLinkedBinding)
+          ->GetFunction(context())
           .ToLocalChecked(),
-      env->NewFunctionTemplate(binding::GetInternalBinding)
-          ->GetFunction(context)
+      NewFunctionTemplate(binding::GetInternalBinding)
+          ->GetFunction(context())
           .ToLocalChecked(),
-      env->primordials()};
+      primordials()};
 
   // Bootstrap internal loaders
-  MaybeLocal<Value> loader_exports = ExecuteBootstrapper(
-      env, "internal/bootstrap/loaders", &loaders_params, &loaders_args);
-  if (loader_exports.IsEmpty()) {
+  Local<Value> loader_exports;
+  if (!ExecuteBootstrapper(
+           this, "internal/bootstrap/loaders", &loaders_params, &loaders_args)
+           .ToLocal(&loader_exports)) {
+    return MaybeLocal<Value>();
+  }
+  CHECK(loader_exports->IsObject());
+  Local<Object> loader_exports_obj = loader_exports.As<Object>();
+  Local<Value> internal_binding_loader =
+      loader_exports_obj->Get(context(), internal_binding_string())
+          .ToLocalChecked();
+  CHECK(internal_binding_loader->IsFunction());
+  set_internal_binding_loader(internal_binding_loader.As<Function>());
+  Local<Value> require =
+      loader_exports_obj->Get(context(), require_string()).ToLocalChecked();
+  CHECK(require->IsFunction());
+  set_native_module_require(require.As<Function>());
+
+  return scope.Escape(loader_exports);
+}
+
+MaybeLocal<Value> Environment::BootstrapNode() {
+  EscapableHandleScope scope(isolate_);
+
+  Local<Object> global = context()->Global();
+  // TODO(joyeecheung): this can be done in JS land now.
+  global->Set(context(), FIXED_ONE_BYTE_STRING(isolate_, "global"), global)
+      .Check();
+
+  // process, require, internalBinding, primordials
+  std::vector<Local<String>> node_params = {
+      process_string(),
+      require_string(),
+      internal_binding_string(),
+      primordials_string()};
+  std::vector<Local<Value>> node_args = {
+      process_object(),
+      native_module_require(),
+      internal_binding_loader(),
+      primordials()};
+
+  MaybeLocal<Value> result = ExecuteBootstrapper(
+      this, "internal/bootstrap/node", &node_params, &node_args);
+
+  if (result.IsEmpty()) {
+    return scope.EscapeMaybe(result);
+  }
+
+  auto thread_switch_id =
+      is_main_thread() ? "internal/bootstrap/switches/is_main_thread"
+                       : "internal/bootstrap/switches/is_not_main_thread";
+  result =
+      ExecuteBootstrapper(this, thread_switch_id, &node_params, &node_args);
+
+  if (result.IsEmpty()) {
+    return scope.EscapeMaybe(result);
+  }
+
+  auto process_state_switch_id =
+      owns_process_state()
+          ? "internal/bootstrap/switches/does_own_process_state"
+          : "internal/bootstrap/switches/does_not_own_process_state";
+  result = ExecuteBootstrapper(
+      this, process_state_switch_id, &node_params, &node_args);
+
+  if (result.IsEmpty()) {
+    return scope.EscapeMaybe(result);
+  }
+
+  Local<String> env_string = FIXED_ONE_BYTE_STRING(isolate_, "env");
+  Local<Object> env_var_proxy;
+  if (!CreateEnvVarProxy(context(), isolate_).ToLocal(&env_var_proxy) ||
+      process_object()->Set(context(), env_string, env_var_proxy).IsNothing()) {
     return MaybeLocal<Value>();
   }
 
-  Local<Object> loader_exports_obj =
-      loader_exports.ToLocalChecked().As<Object>();
-  Local<Value> internal_binding_loader =
-      loader_exports_obj->Get(context, env->internal_binding_string())
-          .ToLocalChecked();
-  env->set_internal_binding_loader(internal_binding_loader.As<Function>());
+  return scope.EscapeMaybe(result);
+}
 
-  Local<Value> require =
-      loader_exports_obj->Get(context, env->require_string()).ToLocalChecked();
-  env->set_native_module_require(require.As<Function>());
+MaybeLocal<Value> Environment::RunBootstrapping() {
+  EscapableHandleScope scope(isolate_);
 
-  // process, require, internalBinding, isMainThread,
-  // ownsProcessState, primordials
-  std::vector<Local<String>> node_params = {
-      env->process_string(),
-      env->require_string(),
-      env->internal_binding_string(),
-      FIXED_ONE_BYTE_STRING(isolate, "isMainThread"),
-      FIXED_ONE_BYTE_STRING(isolate, "ownsProcessState"),
-      env->primordials_string()};
-  std::vector<Local<Value>> node_args = {
-      process,
-      require,
-      internal_binding_loader,
-      Boolean::New(isolate, env->is_main_thread()),
-      Boolean::New(isolate, env->owns_process_state()),
-      env->primordials()};
+  CHECK(!has_run_bootstrapping_code());
 
-  MaybeLocal<Value> result = ExecuteBootstrapper(
-      env, "internal/bootstrap/node", &node_params, &node_args);
-
-  Local<Object> env_var_proxy;
-  if (!CreateEnvVarProxy(context, isolate, env->as_callback_data())
-           .ToLocal(&env_var_proxy) ||
-      process
-          ->Set(env->context(),
-                FIXED_ONE_BYTE_STRING(env->isolate(), "env"),
-                env_var_proxy)
-          .IsNothing())
+  if (BootstrapInternalLoaders().IsEmpty()) {
     return MaybeLocal<Value>();
+  }
+
+  Local<Value> result;
+  if (!BootstrapNode().ToLocal(&result)) {
+    return MaybeLocal<Value>();
+  }
 
   // Make sure that no request or handle is created during bootstrap -
   // if necessary those should be done in pre-execution.
-  // TODO(joyeecheung): print handles/requests before aborting
-  CHECK(env->req_wrap_queue()->IsEmpty());
-  CHECK(env->handle_wrap_queue()->IsEmpty());
+  // Usually, doing so would trigger the checks present in the ReqWrap and
+  // HandleWrap classes, so this is only a consistency check.
+  CHECK(req_wrap_queue()->IsEmpty());
+  CHECK(handle_wrap_queue()->IsEmpty());
 
-  env->set_has_run_bootstrapping_code(true);
+  set_has_run_bootstrapping_code(true);
 
-  return scope.EscapeMaybe(result);
+  return scope.Escape(result);
 }
 
 void MarkBootstrapComplete(const FunctionCallbackInfo<Value>& args) {
@@ -347,6 +414,7 @@ void MarkBootstrapComplete(const FunctionCallbackInfo<Value>& args) {
       performance::NODE_PERFORMANCE_MILESTONE_BOOTSTRAP_COMPLETE);
 }
 
+static
 MaybeLocal<Value> StartExecution(Environment* env, const char* main_script_id) {
   EscapableHandleScope scope(env->isolate());
   CHECK_NOT_NULL(main_script_id);
@@ -367,21 +435,40 @@ MaybeLocal<Value> StartExecution(Environment* env, const char* main_script_id) {
           ->GetFunction(env->context())
           .ToLocalChecked()};
 
-  Local<Value> result;
-  if (!ExecuteBootstrapper(env, main_script_id, &parameters, &arguments)
-           .ToLocal(&result) ||
-      !task_queue::RunNextTicksNative(env)) {
-    return MaybeLocal<Value>();
-  }
-  return scope.Escape(result);
+  return scope.EscapeMaybe(
+      ExecuteBootstrapper(env, main_script_id, &parameters, &arguments));
 }
 
-MaybeLocal<Value> StartMainThreadExecution(Environment* env) {
+MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
+  InternalCallbackScope callback_scope(
+      env,
+      Object::New(env->isolate()),
+      { 1, 0 },
+      InternalCallbackScope::kSkipAsyncHooks);
+
+  if (cb != nullptr) {
+    EscapableHandleScope scope(env->isolate());
+
+    if (StartExecution(env, "internal/bootstrap/environment").IsEmpty())
+      return {};
+
+    StartExecutionCallbackInfo info = {
+      env->process_object(),
+      env->native_module_require(),
+    };
+
+    return scope.EscapeMaybe(cb(info));
+  }
+
   // To allow people to extend Node in different ways, this hook allows
   // one to drop a file lib/_third_party_main.js into the build
   // directory which will be executed instead of Node's normal loading.
   if (NativeModuleEnv::Exists("_third_party_main")) {
     return StartExecution(env, "internal/main/run_third_party_main");
+  }
+
+  if (env->worker_context() != nullptr) {
+    return StartExecution(env, "internal/main/worker_thread");
   }
 
   std::string first_argv;
@@ -397,9 +484,6 @@ MaybeLocal<Value> StartMainThreadExecution(Environment* env) {
     return StartExecution(env, "internal/main/print_help");
   }
 
-  if (per_process::cli_options->print_bash_completion) {
-    return StartExecution(env, "internal/main/print_bash_completion");
-  }
 
   if (env->options()->prof_process) {
     return StartExecution(env, "internal/main/prof_process");
@@ -425,34 +509,63 @@ MaybeLocal<Value> StartMainThreadExecution(Environment* env) {
   return StartExecution(env, "internal/main/eval_stdin");
 }
 
-void LoadEnvironment(Environment* env) {
-  CHECK(env->is_main_thread());
-  // TODO(joyeecheung): Not all of the execution modes in
-  // StartMainThreadExecution() make sense for embedders. Pick the
-  // useful ones out, and allow embedders to customize the entry
-  // point more directly without using _third_party_main.js
-  USE(StartMainThreadExecution(env));
-}
+#ifdef __POSIX__
+typedef void (*sigaction_cb)(int signo, siginfo_t* info, void* ucontext);
+#endif
+#if NODE_USE_V8_WASM_TRAP_HANDLER
+static std::atomic<sigaction_cb> previous_sigsegv_action;
 
+void TrapWebAssemblyOrContinue(int signo, siginfo_t* info, void* ucontext) {
+  if (!v8::TryHandleWebAssemblyTrapPosix(signo, info, ucontext)) {
+    sigaction_cb prev = previous_sigsegv_action.load();
+    if (prev != nullptr) {
+      prev(signo, info, ucontext);
+    } else {
+      // Reset to the default signal handler, i.e. cause a hard crash.
+      struct sigaction sa;
+      memset(&sa, 0, sizeof(sa));
+      sa.sa_handler = SIG_DFL;
+      CHECK_EQ(sigaction(signo, &sa, nullptr), 0);
+
+      ResetStdio();
+      raise(signo);
+    }
+  }
+}
+#endif  // NODE_USE_V8_WASM_TRAP_HANDLER
 
 #ifdef __POSIX__
 void RegisterSignalHandler(int signal,
-                           void (*handler)(int signal),
+                           sigaction_cb handler,
                            bool reset_handler) {
+  CHECK_NOT_NULL(handler);
+#if NODE_USE_V8_WASM_TRAP_HANDLER
+  if (signal == SIGSEGV) {
+    CHECK(previous_sigsegv_action.is_lock_free());
+    CHECK(!reset_handler);
+    previous_sigsegv_action.store(handler);
+    return;
+  }
+#endif  // NODE_USE_V8_WASM_TRAP_HANDLER
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = handler;
-#ifndef __FreeBSD__
-  // FreeBSD has a nasty bug with SA_RESETHAND reseting the SA_SIGINFO, that is
-  // in turn set for a libthr wrapper. This leads to a crash.
-  // Work around the issue by manually setting SIG_DFL in the signal handler
+  sa.sa_sigaction = handler;
   sa.sa_flags = reset_handler ? SA_RESETHAND : 0;
-#endif
   sigfillset(&sa.sa_mask);
   CHECK_EQ(sigaction(signal, &sa, nullptr), 0);
 }
 
 #endif  // __POSIX__
+
+#ifdef __POSIX__
+static struct {
+  int flags;
+  bool isatty;
+  struct stat stat;
+  struct termios termios;
+} stdio[1 + STDERR_FILENO];
+#endif  // __POSIX__
+
 
 inline void PlatformInit() {
 #ifdef __POSIX__
@@ -464,9 +577,9 @@ inline void PlatformInit() {
 #endif  // HAVE_INSPECTOR
 
   // Make sure file descriptors 0-2 are valid before we start logging anything.
-  for (int fd = STDIN_FILENO; fd <= STDERR_FILENO; fd += 1) {
-    struct stat ignored;
-    if (fstat(fd, &ignored) == 0)
+  for (auto& s : stdio) {
+    const int fd = &s - stdio;
+    if (fstat(fd, &s.stat) == 0)
       continue;
     // Anything but EBADF means something is seriously wrong.  We don't
     // have to special-case EINTR, fstat() is not interruptible.
@@ -474,12 +587,15 @@ inline void PlatformInit() {
       ABORT();
     if (fd != open("/dev/null", O_RDWR))
       ABORT();
+    if (fstat(fd, &s.stat) != 0)
+      ABORT();
   }
 
 #if HAVE_INSPECTOR
   CHECK_EQ(err, 0);
 #endif  // HAVE_INSPECTOR
 
+  // TODO(addaleax): NODE_SHARED_MODE does not really make sense here.
 #ifndef NODE_SHARED_MODE
   // Restore signal dispositions, the parent process may have changed them.
   struct sigaction act;
@@ -491,13 +607,48 @@ inline void PlatformInit() {
   for (unsigned nr = 1; nr < kMaxSignal; nr += 1) {
     if (nr == SIGKILL || nr == SIGSTOP)
       continue;
-    act.sa_handler = (nr == SIGPIPE) ? SIG_IGN : SIG_DFL;
+    act.sa_handler = (nr == SIGPIPE || nr == SIGXFSZ) ? SIG_IGN : SIG_DFL;
     CHECK_EQ(0, sigaction(nr, &act, nullptr));
   }
 #endif  // !NODE_SHARED_MODE
 
+  // Record the state of the stdio file descriptors so we can restore it
+  // on exit.  Needs to happen before installing signal handlers because
+  // they make use of that information.
+  for (auto& s : stdio) {
+    const int fd = &s - stdio;
+    int err;
+
+    do
+      s.flags = fcntl(fd, F_GETFL);
+    while (s.flags == -1 && errno == EINTR);  // NOLINT
+    CHECK_NE(s.flags, -1);
+
+    if (uv_guess_handle(fd) != UV_TTY) continue;
+    s.isatty = true;
+
+    do
+      err = tcgetattr(fd, &s.termios);
+    while (err == -1 && errno == EINTR);  // NOLINT
+    CHECK_EQ(err, 0);
+  }
+
   RegisterSignalHandler(SIGINT, SignalExit, true);
   RegisterSignalHandler(SIGTERM, SignalExit, true);
+
+#if NODE_USE_V8_WASM_TRAP_HANDLER
+  // Tell V8 to disable emitting WebAssembly
+  // memory bounds checks. This means that we have
+  // to catch the SIGSEGV in TrapWebAssemblyOrContinue
+  // and pass the signal context to V8.
+  {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = TrapWebAssemblyOrContinue;
+    CHECK_EQ(sigaction(SIGSEGV, &sa, nullptr), 0);
+  }
+  V8::EnableWebAssemblyTrapHandler(false);
+#endif  // NODE_USE_V8_WASM_TRAP_HANDLER
 
   // Raise the open file descriptor limit.
   struct rlimit lim;
@@ -535,10 +686,67 @@ inline void PlatformInit() {
 #endif  // _WIN32
 }
 
+
+// Safe to call more than once and from signal handlers.
+void ResetStdio() {
+  uv_tty_reset_mode();
+#ifdef __POSIX__
+  for (auto& s : stdio) {
+    const int fd = &s - stdio;
+
+    struct stat tmp;
+    if (-1 == fstat(fd, &tmp)) {
+      CHECK_EQ(errno, EBADF);  // Program closed file descriptor.
+      continue;
+    }
+
+    bool is_same_file =
+        (s.stat.st_dev == tmp.st_dev && s.stat.st_ino == tmp.st_ino);
+    if (!is_same_file) continue;  // Program reopened file descriptor.
+
+    int flags;
+    do
+      flags = fcntl(fd, F_GETFL);
+    while (flags == -1 && errno == EINTR);  // NOLINT
+    CHECK_NE(flags, -1);
+
+    // Restore the O_NONBLOCK flag if it changed.
+    if (O_NONBLOCK & (flags ^ s.flags)) {
+      flags &= ~O_NONBLOCK;
+      flags |= s.flags & O_NONBLOCK;
+
+      int err;
+      do
+        err = fcntl(fd, F_SETFL, flags);
+      while (err == -1 && errno == EINTR);  // NOLINT
+      CHECK_NE(err, -1);
+    }
+
+    if (s.isatty) {
+      sigset_t sa;
+      int err;
+
+      // We might be a background job that doesn't own the TTY so block SIGTTOU
+      // before making the tcsetattr() call, otherwise that signal suspends us.
+      sigemptyset(&sa);
+      sigaddset(&sa, SIGTTOU);
+
+      CHECK_EQ(0, pthread_sigmask(SIG_BLOCK, &sa, nullptr));
+      do
+        err = tcsetattr(fd, TCSANOW, &s.termios);
+      while (err == -1 && errno == EINTR);  // NOLINT
+      CHECK_EQ(0, pthread_sigmask(SIG_UNBLOCK, &sa, nullptr));
+      CHECK_EQ(0, err);
+    }
+  }
+#endif  // __POSIX__
+}
+
+
 int ProcessGlobalArgs(std::vector<std::string>* args,
                       std::vector<std::string>* exec_args,
                       std::vector<std::string>* errors,
-                      bool is_env) {
+                      OptionEnvvarSettings settings) {
   // Parse a few arguments which are specific to Node.
   std::vector<std::string> v8_args;
 
@@ -548,7 +756,7 @@ int ProcessGlobalArgs(std::vector<std::string>* args,
       exec_args,
       &v8_args,
       per_process::cli_options.get(),
-      is_env ? kAllowedInEnvironment : kDisallowedInEnvironment,
+      settings,
       errors);
 
   if (!errors->empty()) return 9;
@@ -560,6 +768,13 @@ int ProcessGlobalArgs(std::vector<std::string>* args,
       errors->emplace_back(std::move(revert_error));
       return 12;
     }
+  }
+
+  if (per_process::cli_options->disable_proto != "delete" &&
+      per_process::cli_options->disable_proto != "throw" &&
+      per_process::cli_options->disable_proto != "") {
+    errors->emplace_back("invalid mode passed to --disable-proto");
+    return 12;
   }
 
   auto env_opts = per_process::cli_options->per_isolate->per_env;
@@ -613,17 +828,18 @@ int InitializeNodeWithArgs(std::vector<std::string>* argv,
   // Make sure InitializeNodeWithArgs() is called only once.
   CHECK(!init_called.exchange(true));
 
+  // Initialize node_start_time to get relative uptime.
+  per_process::node_start_time = uv_hrtime();
+
   // Register built-in modules
   binding::RegisterBuiltinModules();
 
   // Make inherited handles noninheritable.
   uv_disable_stdio_inheritance();
 
-#ifdef NODE_REPORT
   // Cache the original command line to be
   // used in diagnostic reports.
   per_process::cli_options->cmdline = *argv;
-#endif  //  NODE_REPORT
 
 #if defined(NODE_V8_OPTIONS)
   // Should come before the call to V8::SetFlagsFromCommandLine()
@@ -632,94 +848,32 @@ int InitializeNodeWithArgs(std::vector<std::string>* argv,
   V8::SetFlagsFromString(NODE_V8_OPTIONS, sizeof(NODE_V8_OPTIONS) - 1);
 #endif
 
-  std::shared_ptr<EnvironmentOptions> default_env_options =
-      per_process::cli_options->per_isolate->per_env;
-  {
-    std::string text;
-    default_env_options->pending_deprecation =
-        credentials::SafeGetenv("NODE_PENDING_DEPRECATION", &text) &&
-        text[0] == '1';
-  }
-
-  // Allow for environment set preserving symlinks.
-  {
-    std::string text;
-    default_env_options->preserve_symlinks =
-        credentials::SafeGetenv("NODE_PRESERVE_SYMLINKS", &text) &&
-        text[0] == '1';
-  }
-
-  {
-    std::string text;
-    default_env_options->preserve_symlinks_main =
-        credentials::SafeGetenv("NODE_PRESERVE_SYMLINKS_MAIN", &text) &&
-        text[0] == '1';
-  }
-
-  if (default_env_options->redirect_warnings.empty()) {
-    credentials::SafeGetenv("NODE_REDIRECT_WARNINGS",
-                            &default_env_options->redirect_warnings);
-  }
-
-#if HAVE_OPENSSL
-  std::string* openssl_config = &per_process::cli_options->openssl_config;
-  if (openssl_config->empty()) {
-    credentials::SafeGetenv("OPENSSL_CONF", openssl_config);
-  }
-#endif
+  HandleEnvOptions(per_process::cli_options->per_isolate->per_env);
 
 #if !defined(NODE_WITHOUT_NODE_OPTIONS)
   std::string node_options;
 
   if (credentials::SafeGetenv("NODE_OPTIONS", &node_options)) {
-    std::vector<std::string> env_argv;
+    std::vector<std::string> env_argv =
+        ParseNodeOptionsEnvVar(node_options, errors);
+
+    if (!errors->empty()) return 9;
+
     // [0] is expected to be the program name, fill it in from the real argv.
-    env_argv.push_back(argv->at(0));
+    env_argv.insert(env_argv.begin(), argv->at(0));
 
-    bool is_in_string = false;
-    bool will_start_new_arg = true;
-    for (std::string::size_type index = 0;
-         index < node_options.size();
-         ++index) {
-      char c = node_options.at(index);
-
-      // Backslashes escape the following character
-      if (c == '\\' && is_in_string) {
-        if (index + 1 == node_options.size()) {
-          errors->push_back("invalid value for NODE_OPTIONS "
-                            "(invalid escape)\n");
-          return 9;
-        } else {
-          c = node_options.at(++index);
-        }
-      } else if (c == ' ' && !is_in_string) {
-        will_start_new_arg = true;
-        continue;
-      } else if (c == '"') {
-        is_in_string = !is_in_string;
-        continue;
-      }
-
-      if (will_start_new_arg) {
-        env_argv.push_back(std::string(1, c));
-        will_start_new_arg = false;
-      } else {
-        env_argv.back() += c;
-      }
-    }
-
-    if (is_in_string) {
-      errors->push_back("invalid value for NODE_OPTIONS "
-                        "(unterminated string)\n");
-      return 9;
-    }
-
-    const int exit_code = ProcessGlobalArgs(&env_argv, nullptr, errors, true);
+    const int exit_code = ProcessGlobalArgs(&env_argv,
+                                            nullptr,
+                                            errors,
+                                            kAllowedInEnvironment);
     if (exit_code != 0) return exit_code;
   }
 #endif
 
-  const int exit_code = ProcessGlobalArgs(argv, exec_argv, errors, false);
+  const int exit_code = ProcessGlobalArgs(argv,
+                                          exec_argv,
+                                          errors,
+                                          kDisallowedInEnvironment);
   if (exit_code != 0) return exit_code;
 
   // Set the process.title immediately after processing argv if --title is set.
@@ -731,6 +885,25 @@ int InitializeNodeWithArgs(std::vector<std::string>* argv,
   if (per_process::cli_options->icu_data_dir.empty())
     credentials::SafeGetenv("NODE_ICU_DATA",
                             &per_process::cli_options->icu_data_dir);
+
+#ifdef NODE_ICU_DEFAULT_DATA_DIR
+  // If neither the CLI option nor the environment variable was specified,
+  // fall back to the configured default
+  if (per_process::cli_options->icu_data_dir.empty()) {
+    // Check whether the NODE_ICU_DEFAULT_DATA_DIR contains the right data
+    // file and can be read.
+    static const char full_path[] =
+        NODE_ICU_DEFAULT_DATA_DIR "/" U_ICUDATA_NAME ".dat";
+
+    FILE* f = fopen(full_path, "rb");
+
+    if (f != nullptr) {
+      fclose(f);
+      per_process::cli_options->icu_data_dir = NODE_ICU_DEFAULT_DATA_DIR;
+    }
+  }
+#endif  // NODE_ICU_DEFAULT_DATA_DIR
+
   // Initialize ICU.
   // If icu_data_dir is empty here, it will load the 'minimal' data.
   if (!i18n::InitializeICUDirectory(per_process::cli_options->icu_data_dir)) {
@@ -772,8 +945,15 @@ void Init(int* argc,
     exit(0);
   }
 
+  if (per_process::cli_options->print_bash_completion) {
+    std::string completion = options_parser::GetBashCompletion();
+    printf("%s\n", completion.c_str());
+    exit(0);
+  }
+
   if (per_process::cli_options->print_v8_help) {
-    V8::SetFlagsFromString("--help", 6);  // Doesn't return.
+    // Doesn't return.
+    V8::SetFlagsFromString("--help", static_cast<size_t>(6));
     UNREACHABLE();
   }
 
@@ -790,19 +970,14 @@ void Init(int* argc,
 }
 
 InitializationResult InitializeOncePerProcess(int argc, char** argv) {
-  atexit([] () { uv_tty_reset_mode(); });
+  // Initialized the enabled list for Debug() calls with system
+  // environment variables.
+  per_process::enabled_debug_list.Parse(nullptr);
+
+  atexit(ResetStdio);
   PlatformInit();
-  per_process::node_start_time = uv_hrtime();
 
   CHECK_GT(argc, 0);
-
-#ifdef NODE_ENABLE_LARGE_CODE_PAGES
-  if (node::IsLargePagesEnabled()) {
-    if (node::MapStaticCodeToLargePages() != 0) {
-      fprintf(stderr, "Reverting to default page size\n");
-    }
-  }
-#endif
 
   // Hack around with the argv pointer. Used for process.title = "blah".
   argv = uv_setup_args(argc, argv);
@@ -823,6 +998,14 @@ InitializationResult InitializeOncePerProcess(int argc, char** argv) {
     }
   }
 
+  if (per_process::cli_options->use_largepages == "on" ||
+      per_process::cli_options->use_largepages == "silent") {
+    int result = node::MapStaticCodeToLargePages();
+    if (per_process::cli_options->use_largepages == "on" && result != 0) {
+      fprintf(stderr, "%s\n", node::LargePagesError(result));
+    }
+  }
+
   if (per_process::cli_options->print_version) {
     printf("%s\n", NODE_VERSION);
     result.exit_code = 0;
@@ -830,8 +1013,15 @@ InitializationResult InitializeOncePerProcess(int argc, char** argv) {
     return result;
   }
 
+  if (per_process::cli_options->print_bash_completion) {
+    std::string completion = options_parser::GetBashCompletion();
+    printf("%s\n", completion.c_str());
+    exit(0);
+  }
+
   if (per_process::cli_options->print_v8_help) {
-    V8::SetFlagsFromString("--help", 6);  // Doesn't return.
+    // Doesn't return.
+    V8::SetFlagsFromString("--help", static_cast<size_t>(6));
     UNREACHABLE();
   }
 
@@ -851,7 +1041,8 @@ InitializationResult InitializeOncePerProcess(int argc, char** argv) {
   V8::SetEntropySource(crypto::EntropySource);
 #endif  // HAVE_OPENSSL
 
-  InitializeV8Platform(per_process::cli_options->v8_thread_pool_size);
+  per_process::v8_platform.Initialize(
+      per_process::cli_options->v8_thread_pool_size);
   V8::Initialize();
   performance::performance_v8_start = PERFORMANCE_NOW();
   per_process::v8_initialized = true;
@@ -879,16 +1070,21 @@ int Start(int argc, char** argv) {
 
   {
     Isolate::CreateParams params;
-    // TODO(joyeecheung): collect external references and set it in
-    // params.external_references.
-    std::vector<intptr_t> external_references = {
-        reinterpret_cast<intptr_t>(nullptr)};
-    v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
-    const std::vector<size_t>* indexes =
-        NodeMainInstance::GetIsolateDataIndexes();
-    if (blob != nullptr) {
-      params.external_references = external_references.data();
-      params.snapshot_blob = blob;
+    const std::vector<size_t>* indexes = nullptr;
+    std::vector<intptr_t> external_references;
+
+    bool force_no_snapshot =
+        per_process::cli_options->per_isolate->no_node_snapshot;
+    if (!force_no_snapshot) {
+      v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
+      if (blob != nullptr) {
+        // TODO(joyeecheung): collect external references and set it in
+        // params.external_references.
+        external_references.push_back(reinterpret_cast<intptr_t>(nullptr));
+        params.external_references = external_references.data();
+        params.snapshot_blob = blob;
+        indexes = NodeMainInstance::GetIsolateDataIndexes();
+      }
     }
 
     NodeMainInstance main_instance(&params,

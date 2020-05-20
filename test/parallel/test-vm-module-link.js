@@ -13,7 +13,8 @@ async function simple() {
   const foo = new SourceTextModule('export default 5;');
   await foo.link(common.mustNotCall());
 
-  const bar = new SourceTextModule('import five from "foo"; five');
+  globalThis.fiveResult = undefined;
+  const bar = new SourceTextModule('import five from "foo"; fiveResult = five');
 
   assert.deepStrictEqual(bar.dependencySpecifiers, ['foo']);
 
@@ -23,9 +24,9 @@ async function simple() {
     return foo;
   }));
 
-  bar.instantiate();
-
-  assert.strictEqual((await bar.evaluate()).result, 5);
+  await bar.evaluate();
+  assert.strictEqual(globalThis.fiveResult, 5);
+  delete globalThis.fiveResult;
 }
 
 async function depth() {
@@ -49,7 +50,6 @@ async function depth() {
   const baz = await getProxy('bar', bar);
   const barz = await getProxy('baz', baz);
 
-  barz.instantiate();
   await barz.evaluate();
 
   assert.strictEqual(barz.namespace.default, 5);
@@ -67,20 +67,19 @@ async function circular() {
       return foo;
     }
   `);
-  await foo.link(common.mustCall(async (fooSpecifier, fooModule) => {
-    assert.strictEqual(fooModule, foo);
-    assert.strictEqual(fooSpecifier, 'bar');
-    await bar.link(common.mustCall((barSpecifier, barModule) => {
-      assert.strictEqual(barModule, bar);
-      assert.strictEqual(barSpecifier, 'foo');
-      assert.strictEqual(foo.linkingStatus, 'linking');
-      return foo;
-    }));
-    assert.strictEqual(bar.linkingStatus, 'linked');
-    return bar;
-  }));
+  await foo.link(common.mustCall(async (specifier, module) => {
+    if (specifier === 'bar') {
+      assert.strictEqual(module, foo);
+      return bar;
+    }
+    assert.strictEqual(specifier, 'foo');
+    assert.strictEqual(module, bar);
+    assert.strictEqual(foo.status, 'linking');
+    return foo;
+  }, 2));
 
-  foo.instantiate();
+  assert.strictEqual(bar.status, 'linked');
+
   await foo.evaluate();
   assert.strictEqual(foo.namespace.default, 42);
 }
@@ -101,27 +100,28 @@ async function circular2() {
     `,
     './a.mjs': `
       export * from './b.mjs';
-      export var fromA;
+      export let fromA;
     `,
     './b.mjs': `
       export * from './a.mjs';
-      export var fromB;
+      export let fromB;
     `
   };
   const moduleMap = new Map();
-  const rootModule = new SourceTextModule(sourceMap.root, { url: 'vm:root' });
+  const rootModule = new SourceTextModule(sourceMap.root, {
+    identifier: 'vm:root',
+  });
   async function link(specifier, referencingModule) {
     if (moduleMap.has(specifier)) {
       return moduleMap.get(specifier);
     }
     const mod = new SourceTextModule(sourceMap[specifier], {
-      url: new URL(specifier, 'file:///').href,
+      identifier: new URL(specifier, 'file:///').href,
     });
     moduleMap.set(specifier, mod);
     return mod;
   }
   await rootModule.link(link);
-  rootModule.instantiate();
   await rootModule.evaluate();
 }
 

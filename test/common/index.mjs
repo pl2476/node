@@ -1,12 +1,6 @@
-// Flags: --experimental-modules
 /* eslint-disable node-core/require-common-first, node-core/required-modules */
 
-import { createRequireFromPath } from 'module';
-import { fileURLToPath as toPath } from 'url';
-
-function createRequire(metaUrl) {
-  return createRequireFromPath(toPath(metaUrl));
-}
+import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const common = require('./index.js');
@@ -15,8 +9,10 @@ const {
   isMainThread,
   isWindows,
   isAIX,
+  isIBMi,
   isLinuxPPCBE,
   isSunOS,
+  isDumbTerminal,
   isFreeBSD,
   isOpenBSD,
   isLinux,
@@ -36,15 +32,14 @@ const {
   mustCall,
   mustCallAtLeast,
   hasMultiLocalhost,
+  skipIfDumbTerminal,
   skipIfEslintMissing,
   canCreateSymLink,
   getCallSite,
   mustNotCall,
   printSkipMessage,
   skip,
-  ArrayStream,
   nodeProcessAborted,
-  busyLoop,
   isAlive,
   expectWarning,
   expectsError,
@@ -61,8 +56,10 @@ export {
   isMainThread,
   isWindows,
   isAIX,
+  isIBMi,
   isLinuxPPCBE,
   isSunOS,
+  isDumbTerminal,
   isFreeBSD,
   isOpenBSD,
   isLinux,
@@ -82,15 +79,14 @@ export {
   mustCall,
   mustCallAtLeast,
   hasMultiLocalhost,
+  skipIfDumbTerminal,
   skipIfEslintMissing,
   canCreateSymLink,
   getCallSite,
   mustNotCall,
   printSkipMessage,
   skip,
-  ArrayStream,
   nodeProcessAborted,
-  busyLoop,
   isAlive,
   expectWarning,
   expectsError,

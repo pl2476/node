@@ -3,11 +3,24 @@
 # found in the LICENSE file.
 
 {
-  'includes': [
-    '../../deps/v8/third_party/inspector_protocol/inspector_protocol.gypi',
-  ],
   'variables': {
     'inspector_protocol_path': '<(V8_ROOT)/third_party/inspector_protocol',
+    'inspector_protocol_files': [
+      '<(inspector_protocol_path)/lib/base_string_adapter_cc.template',
+      '<(inspector_protocol_path)/lib/base_string_adapter_h.template',
+      '<(inspector_protocol_path)/lib/Forward_h.template',
+      '<(inspector_protocol_path)/lib/Object_cpp.template',
+      '<(inspector_protocol_path)/lib/Object_h.template',
+      '<(inspector_protocol_path)/lib/Protocol_cpp.template',
+      '<(inspector_protocol_path)/lib/ValueConversions_h.template',
+      '<(inspector_protocol_path)/lib/Values_cpp.template',
+      '<(inspector_protocol_path)/lib/Values_h.template',
+      '<(inspector_protocol_path)/templates/Exported_h.template',
+      '<(inspector_protocol_path)/templates/Imported_h.template',
+      '<(inspector_protocol_path)/templates/TypeBuilder_cpp.template',
+      '<(inspector_protocol_path)/templates/TypeBuilder_h.template',
+      '<(inspector_protocol_path)/code_generator.py',
+    ],
     'inspector_path': '<(V8_ROOT)/src/inspector',
     'inspector_generated_output_root': '<(SHARED_INTERMEDIATE_DIR)/inspector-generated-output-root',
     'inspector_generated_sources': [
@@ -82,18 +95,44 @@
       '<(V8_ROOT)/src/inspector/v8-value-utils.h',
       '<(V8_ROOT)/src/inspector/value-mirror.cc',
       '<(V8_ROOT)/src/inspector/value-mirror.h',
-      '<(V8_ROOT)/src/inspector/wasm-translation.cc',
-      '<(V8_ROOT)/src/inspector/wasm-translation.h',
-    ]
+      # Flat merge `third_party/inspector_protocol:inspector_string_conversions`
+      '<(inspector_path)/v8-string-conversions.cc',
+      '<(inspector_path)/v8-string-conversions.h',
+      # Flat merge `third_party/inspector_protocal:crdtp_platform`
+      '<(inspector_protocol_path)/crdtp/json_platform.h',
+      '<(inspector_protocol_path)/crdtp/json_platform_v8.cc',
+      # Flat merge `third_party/inspector_protocol:crdtp`
+      '<(inspector_protocol_path)/crdtp/cbor.cc',
+      '<(inspector_protocol_path)/crdtp/cbor.h',
+      '<(inspector_protocol_path)/crdtp/dispatch.cc',
+      '<(inspector_protocol_path)/crdtp/dispatch.h',
+      '<(inspector_protocol_path)/crdtp/error_support.cc',
+      '<(inspector_protocol_path)/crdtp/error_support.h',
+      '<(inspector_protocol_path)/crdtp/export.h',
+      '<(inspector_protocol_path)/crdtp/find_by_first.h',
+      '<(inspector_protocol_path)/crdtp/glue.h',
+      '<(inspector_protocol_path)/crdtp/json.cc',
+      '<(inspector_protocol_path)/crdtp/json.h',
+      '<(inspector_protocol_path)/crdtp/parser_handler.h',
+      '<(inspector_protocol_path)/crdtp/serializable.cc',
+      '<(inspector_protocol_path)/crdtp/serializable.h',
+      '<(inspector_protocol_path)/crdtp/serializer_traits.h',
+      '<(inspector_protocol_path)/crdtp/span.cc',
+      '<(inspector_protocol_path)/crdtp/span.h',
+      '<(inspector_protocol_path)/crdtp/status.cc',
+      '<(inspector_protocol_path)/crdtp/status.h',
+    ],
+    'v8_inspector_js_protocol': '<(V8_ROOT)/include/js_protocol.pdl',
   },
   'include_dirs': [
     '<(inspector_generated_output_root)',
+    '<(inspector_protocol_path)',
   ],
   'actions': [
     {
       'action_name': 'protocol_compatibility',
       'inputs': [
-        '<(inspector_path)/js_protocol.pdl',
+        '<(v8_inspector_js_protocol)',
       ],
       'outputs': [
         '<@(inspector_generated_output_root)/src/js_protocol.stamp',
@@ -109,7 +148,7 @@
     {
       'action_name': 'protocol_generated_sources',
       'inputs': [
-        '<(inspector_path)/js_protocol.pdl',
+        '<(v8_inspector_js_protocol)',
         '<(inspector_path)/inspector_protocol_config.json',
         '<@(inspector_protocol_files)',
       ],
@@ -123,6 +162,7 @@
         '--jinja_dir', '<(V8_ROOT)/third_party',
         '--output_base', '<(inspector_generated_output_root)/src/inspector',
         '--config', '<(inspector_path)/inspector_protocol_config.json',
+        '--inspector_protocol_dir', '<(inspector_protocol_path)',
       ],
       'message': 'Generating inspector protocol sources from protocol json',
     },

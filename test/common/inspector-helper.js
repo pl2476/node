@@ -6,7 +6,7 @@ const http = require('http');
 const fixtures = require('../common/fixtures');
 const { spawn } = require('child_process');
 const { parse: parseURL } = require('url');
-const { pathToFileURL } = require('internal/url');
+const { pathToFileURL } = require('url');
 const { EventEmitter } = require('events');
 
 const _MAINSCRIPT = fixtures.path('loop.js');
@@ -217,9 +217,8 @@ class InspectorSession {
       return Promise
         .all(commands.map((command) => this._sendMessage(command)))
         .then(() => {});
-    } else {
-      return this._sendMessage(commands);
     }
+    return this._sendMessage(commands);
   }
 
   waitForNotification(methodOrPredicate, description) {
@@ -344,6 +343,9 @@ class NodeInstance extends EventEmitter {
 
     this._shutdownPromise = new Promise((resolve) => {
       this._process.once('exit', (exitCode, signal) => {
+        if (signal) {
+          console.error(`[err] child process crashed, signal ${signal}`);
+        }
         resolve({ exitCode, signal });
         this._running = false;
       });

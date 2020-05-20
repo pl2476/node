@@ -7,6 +7,7 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const path = require('path');
 const vm = require('vm');
+const { inspect } = require('util');
 
 // https://github.com/w3c/testharness.js/blob/master/testharness.js
 // TODO: get rid of this half-baked harness in favor of the one
@@ -41,16 +42,29 @@ class ResourceLoader {
     this.path = path;
   }
 
-  fetch(url, asPromise = true) {
+  toRealFilePath(from, url) {
     // We need to patch this to load the WebIDL parser
     url = url.replace(
       '/resources/WebIDLParser.js',
       '/resources/webidl2/lib/webidl2.js'
     );
-    const file = url.startsWith('/') ?
+    const base = path.dirname(from);
+    return url.startsWith('/') ?
       fixtures.path('wpt', url) :
-      fixtures.path('wpt', this.path, url);
-    if (asPromise) {
+      fixtures.path('wpt', base, url);
+  }
+
+  /**
+   * Load a resource in test/fixtures/wpt specified with a URL
+   * @param {string} from the path of the file loading this resource,
+   *                      relative to thw WPT folder.
+   * @param {string} url the url of the resource being loaded.
+   * @param {boolean} asPromise if true, return the resource in a
+   *                            pseudo-Response object.
+   */
+  read(from, url, asFetch = true) {
+    const file = this.toRealFilePath(from, url);
+    if (asFetch) {
       return fsPromises.readFile(file)
         .then((data) => {
           return {
@@ -59,9 +73,8 @@ class ResourceLoader {
             text() { return data.toString(); }
           };
         });
-    } else {
-      return fs.readFileSync(file, 'utf8');
     }
+    return fs.readFileSync(file, 'utf8');
   }
 }
 
@@ -85,7 +98,7 @@ class StatusRule {
    * @returns {RegExp}
    */
   transformPattern(pattern) {
-    const result = pattern.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&');
+    const result = path.normalize(pattern).replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&');
     return new RegExp(result.replace('*', '.*'));
   }
 }
@@ -125,7 +138,8 @@ class StatusRuleSet {
   }
 }
 
-class WPTTest {
+// A specification of WPT test
+class WPTTestSpec {
   /**
    * @param {string} mod name of the WPT module, e.g.
    *                     'html/webappapis/microtask-queuing'
@@ -155,8 +169,12 @@ class WPTTest {
     }
   }
 
+  getRelativePath() {
+    return path.join(this.module, this.filename);
+  }
+
   getAbsolutePath() {
-    return fixtures.path('wpt', this.module, this.filename);
+    return fixtures.path('wpt', this.getRelativePath());
   }
 
   getContent() {
@@ -213,8 +231,31 @@ class StatusLoader {
     this.path = path;
     this.loaded = false;
     this.rules = new StatusRuleSet();
-    /** @type {WPTTest[]} */
-    this.tests = [];
+    /** @type {WPTTestSpec[]} */
+    this.specs = [];
+  }
+
+  /**
+   * Grep for all .*.js file recursively in a directory.
+   * @param {string} dir
+   */
+  grep(dir) {
+    let result = [];
+    const list = fs.readdirSync(dir);
+    for (const file of list) {
+      const filepath = path.join(dir, file);
+      const stat = fs.statSync(filepath);
+      if (stat.isDirectory()) {
+        const list = this.grep(filepath);
+        result = result.concat(list);
+      } else {
+        if (!(/\.\w+\.js$/.test(filepath))) {
+          continue;
+        }
+        result.push(filepath);
+      }
+    }
+    return result;
   }
 
   load() {
@@ -223,22 +264,24 @@ class StatusLoader {
     const result = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
     this.rules.addRules(result);
 
-    const list = fs.readdirSync(fixtures.path('wpt', this.path));
-
+    const subDir = fixtures.path('wpt', this.path);
+    const list = this.grep(subDir);
     for (const file of list) {
-      if (!(/\.\w+\.js$/.test(file))) {
-        continue;
-      }
-      const match = this.rules.match(file);
-      this.tests.push(new WPTTest(this.path, file, match));
+      const relativePath = path.relative(subDir, file);
+      const match = this.rules.match(relativePath);
+      this.specs.push(new WPTTestSpec(this.path, relativePath, match));
     }
     this.loaded = true;
   }
 }
 
-const PASSED = 1;
-const FAILED = 2;
-const SKIPPED = 3;
+const kPass = 'pass';
+const kFail = 'fail';
+const kSkip = 'skip';
+const kTimeout = 'timeout';
+const kIncomplete = 'incomplete';
+const kUncaught = 'uncaught';
+const NODE_UNCAUGHT = 100;
 
 class WPTRunner {
   constructor(path) {
@@ -251,12 +294,13 @@ class WPTRunner {
 
     this.status = new StatusLoader(path);
     this.status.load();
-    this.tests = new Map(
-      this.status.tests.map((item) => [item.filename, item])
+    this.specMap = new Map(
+      this.status.specs.map((item) => [item.filename, item])
     );
 
-    this.results = new Map();
+    this.results = {};
     this.inProgress = new Set();
+    this.unexpectedFailures = [];
   }
 
   /**
@@ -293,50 +337,108 @@ class WPTRunner {
     // only `subset.any.js` will be run by the runner.
     if (process.argv[2]) {
       const filename = process.argv[2];
-      if (!this.tests.has(filename)) {
+      if (!this.specMap.has(filename)) {
         throw new Error(`${filename} not found!`);
       }
-      queue.push(this.tests.get(filename));
+      queue.push(this.specMap.get(filename));
     } else {
       queue = this.buildQueue();
     }
 
-    this.inProgress = new Set(queue.map((item) => item.filename));
+    this.inProgress = new Set(queue.map((spec) => spec.filename));
 
-    for (const test of queue) {
-      const filename = test.filename;
-      const content = test.getContent();
-      const meta = test.title = this.getMeta(content);
+    for (const spec of queue) {
+      const testFileName = spec.filename;
+      const content = spec.getContent();
+      const meta = spec.title = this.getMeta(content);
 
-      const absolutePath = test.getAbsolutePath();
-      const context = this.generateContext(test.filename);
-      const code = this.mergeScripts(meta, content);
-      try {
-        vm.runInContext(code, context, {
-          filename: absolutePath
-        });
-      } catch (err) {
-        this.fail(filename, {
-          name: '',
-          message: err.message,
-          stack: err.stack
-        }, 'UNCAUGHT');
-        this.inProgress.delete(filename);
+      const absolutePath = spec.getAbsolutePath();
+      const context = this.generateContext(spec);
+      const relativePath = spec.getRelativePath();
+      const scriptsToRun = [];
+      // Scripts specified with the `// META: script=` header
+      if (meta.script) {
+        for (const script of meta.script) {
+          scriptsToRun.push({
+            filename: this.resource.toRealFilePath(relativePath, script),
+            code: this.resource.read(relativePath, script, false)
+          });
+        }
+      }
+      // The actual test
+      scriptsToRun.push({
+        code: content,
+        filename: absolutePath
+      });
+
+      for (const { code, filename } of scriptsToRun) {
+        try {
+          vm.runInContext(code, context, { filename });
+        } catch (err) {
+          this.fail(
+            testFileName,
+            {
+              status: NODE_UNCAUGHT,
+              name: 'evaluation in WPTRunner.runJsTests()',
+              message: err.message,
+              stack: inspect(err)
+            },
+            kUncaught
+          );
+          this.inProgress.delete(filename);
+          break;
+        }
       }
     }
-    this.tryFinish();
+
+    process.on('exit', () => {
+      const total = this.specMap.size;
+      if (this.inProgress.size > 0) {
+        for (const filename of this.inProgress) {
+          this.fail(filename, { name: 'Unknown' }, kIncomplete);
+        }
+      }
+      inspect.defaultOptions.depth = Infinity;
+      console.log(this.results);
+
+      const failures = [];
+      let expectedFailures = 0;
+      let skipped = 0;
+      for (const key of Object.keys(this.results)) {
+        const item = this.results[key];
+        if (item.fail && item.fail.unexpected) {
+          failures.push(key);
+        }
+        if (item.fail && item.fail.expected) {
+          expectedFailures++;
+        }
+        if (item.skip) {
+          skipped++;
+        }
+      }
+      const ran = total - skipped;
+      const passed = ran - expectedFailures - failures.length;
+      console.log(`Ran ${ran}/${total} tests, ${skipped} skipped,`,
+                  `${passed} passed, ${expectedFailures} expected failures,`,
+                  `${failures.length} unexpected failures`);
+      if (failures.length > 0) {
+        const file = path.join('test', 'wpt', 'status', `${this.path}.json`);
+        throw new Error(
+          `Found ${failures.length} unexpected failures. ` +
+          `Consider updating ${file} for these files:\n${failures.join('\n')}`);
+      }
+    });
   }
 
-  mock() {
+  mock(testfile) {
     const resource = this.resource;
     const result = {
       // This is a mock, because at the moment fetch is not implemented
       // in Node.js, but some tests and harness depend on this to pull
       // resources.
       fetch(file) {
-        return resource.fetch(file);
+        return resource.read(testfile, file, true);
       },
-      location: {},
       GLOBAL: {
         isWindow() { return false; }
       },
@@ -347,16 +449,17 @@ class WPTRunner {
   }
 
   // Note: this is how our global space for the WPT test should look like
-  getSandbox() {
-    const result = this.mock();
+  getSandbox(filename) {
+    const result = this.mock(filename);
     for (const [name, desc] of this.globals) {
       Object.defineProperty(result, name, desc);
     }
     return result;
   }
 
-  generateContext(filename) {
-    const sandbox = this.sandbox = this.getSandbox();
+  generateContext(test) {
+    const filename = test.filename;
+    const sandbox = this.sandbox = this.getSandbox(test.getRelativePath());
     const context = this.context = vm.createContext(sandbox);
 
     const harnessPath = fixtures.path('wpt', 'resources', 'testharness.js');
@@ -374,117 +477,124 @@ class WPTRunner {
     sandbox.self = sandbox;
     // TODO(joyeecheung): we are not a window - work with the upstream to
     // add a new scope for us.
-
-    const { Worker } = require('worker_threads');
-    sandbox.DedicatedWorker = Worker;  // Pretend we are a Worker
     return context;
   }
 
-  resultCallback(filename, test) {
-    switch (test.status) {
+  getTestTitle(filename) {
+    const spec = this.specMap.get(filename);
+    const title = spec.meta && spec.meta.title;
+    return title ? `${filename} : ${title}` : filename;
+  }
+
+  // Map WPT test status to strings
+  getTestStatus(status) {
+    switch (status) {
       case 1:
-        this.fail(filename, test, 'FAILURE');
-        break;
+        return kFail;
       case 2:
-        this.fail(filename, test, 'TIMEOUT');
-        break;
+        return kTimeout;
       case 3:
-        this.fail(filename, test, 'INCOMPLETE');
-        break;
+        return kIncomplete;
+      case NODE_UNCAUGHT:
+        return kUncaught;
       default:
-        this.succeed(filename, test);
+        return kPass;
     }
   }
 
+  /**
+   * Report the status of each specific test case (there could be multiple
+   * in one test file).
+   *
+   * @param {string} filename
+   * @param {Test} test  The Test object returned by WPT harness
+   */
+  resultCallback(filename, test) {
+    const status = this.getTestStatus(test.status);
+    const title = this.getTestTitle(filename);
+    console.log(`---- ${title} ----`);
+    if (status !== kPass) {
+      this.fail(filename, test, status);
+    } else {
+      this.succeed(filename, test, status);
+    }
+  }
+
+  /**
+   * Report the status of each WPT test (one per file)
+   *
+   * @param {string} filename
+   * @param {Test[]} test  The Test objects returned by WPT harness
+   */
   completionCallback(filename, tests, harnessStatus) {
+    // Treat it like a test case failure
     if (harnessStatus.status === 2) {
-      assert.fail(`test harness timed out in ${filename}`);
+      const title = this.getTestTitle(filename);
+      console.log(`---- ${title} ----`);
+      this.resultCallback(filename, { status: 2, name: 'Unknown' });
     }
     this.inProgress.delete(filename);
-    this.tryFinish();
   }
 
-  tryFinish() {
-    if (this.inProgress.size > 0) {
-      return;
+  addTestResult(filename, item) {
+    let result = this.results[filename];
+    if (!result) {
+      result = this.results[filename] = {};
     }
-
-    this.reportResults();
-  }
-
-  reportResults() {
-    const unexpectedFailures = [];
-    for (const [filename, items] of this.results) {
-      const test = this.tests.get(filename);
-      let title = test.meta && test.meta.title;
-      title = title ? `${filename} : ${title}` : filename;
-      console.log(`---- ${title} ----`);
-      for (const item of items) {
-        switch (item.type) {
-          case FAILED: {
-            if (test.failReasons.length) {
-              console.log(`[EXPECTED_FAILURE] ${item.test.name}`);
-              console.log(test.failReasons.join('; '));
-            } else {
-              console.log(`[UNEXPECTED_FAILURE] ${item.test.name}`);
-              unexpectedFailures.push([title, filename, item]);
-            }
-            break;
-          }
-          case PASSED: {
-            console.log(`[PASSED] ${item.test.name}`);
-            break;
-          }
-          case SKIPPED: {
-            console.log(`[SKIPPED] ${item.reason}`);
-            break;
-          }
-        }
-      }
-    }
-
-    if (unexpectedFailures.length > 0) {
-      for (const [title, filename, item] of unexpectedFailures) {
-        console.log(`---- ${title} ----`);
-        console.log(`[${item.reason}] ${item.test.name}`);
-        console.log(item.test.message);
-        console.log(item.test.stack);
-        const command = `${process.execPath} ${process.execArgv}` +
-                        ` ${require.main.filename} ${filename}`;
-        console.log(`Command: ${command}\n`);
-      }
-      assert.fail(`${unexpectedFailures.length} unexpected failures found`);
-    }
-  }
-
-  addResult(filename, item) {
-    const result = this.results.get(filename);
-    if (result) {
-      result.push(item);
+    if (item.status === kSkip) {
+      // { filename: { skip: 'reason' } }
+      result[kSkip] = item.reason;
     } else {
-      this.results.set(filename, [item]);
+      // { filename: { fail: { expected: [ ... ],
+      //                      unexpected: [ ... ] } }}
+      if (!result[item.status]) {
+        result[item.status] = {};
+      }
+      const key = item.expected ? 'expected' : 'unexpected';
+      if (!result[item.status][key]) {
+        result[item.status][key] = [];
+      }
+      if (result[item.status][key].indexOf(item.reason) === -1) {
+        result[item.status][key].push(item.reason);
+      }
     }
   }
 
-  succeed(filename, test) {
-    this.addResult(filename, {
-      type: PASSED,
-      test
-    });
+  succeed(filename, test, status) {
+    console.log(`[${status.toUpperCase()}] ${test.name}`);
   }
 
-  fail(filename, test, reason) {
-    this.addResult(filename, {
-      type: FAILED,
-      test,
-      reason
+  fail(filename, test, status) {
+    const spec = this.specMap.get(filename);
+    const expected = !!(spec.failReasons.length);
+    if (expected) {
+      console.log(`[EXPECTED_FAILURE][${status.toUpperCase()}] ${test.name}`);
+      console.log(spec.failReasons.join('; '));
+    } else {
+      console.log(`[UNEXPECTED_FAILURE][${status.toUpperCase()}] ${test.name}`);
+    }
+    if (status === kFail || status === kUncaught) {
+      console.log(test.message);
+      console.log(test.stack);
+    }
+    const command = `${process.execPath} ${process.execArgv}` +
+                    ` ${require.main.filename} ${filename}`;
+    console.log(`Command: ${command}\n`);
+    this.addTestResult(filename, {
+      expected,
+      status: kFail,
+      reason: test.message || status
     });
   }
 
   skip(filename, reasons) {
-    this.addResult(filename, {
-      type: SKIPPED,
-      reason: reasons.join('; ')
+    const title = this.getTestTitle(filename);
+    console.log(`---- ${title} ----`);
+    const joinedReasons = reasons.join('; ');
+    console.log(`[SKIPPED] ${joinedReasons}`);
+    this.addTestResult(filename, {
+      status: kSkip,
+      reason: joinedReasons
     });
   }
 
@@ -492,56 +602,41 @@ class WPTRunner {
     const matches = code.match(/\/\/ META: .+/g);
     if (!matches) {
       return {};
-    } else {
-      const result = {};
-      for (const match of matches) {
-        const parts = match.match(/\/\/ META: ([^=]+?)=(.+)/);
-        const key = parts[1];
-        const value = parts[2];
-        if (key === 'script') {
-          if (result[key]) {
-            result[key].push(value);
-          } else {
-            result[key] = [value];
-          }
+    }
+    const result = {};
+    for (const match of matches) {
+      const parts = match.match(/\/\/ META: ([^=]+?)=(.+)/);
+      const key = parts[1];
+      const value = parts[2];
+      if (key === 'script') {
+        if (result[key]) {
+          result[key].push(value);
         } else {
-          result[key] = value;
+          result[key] = [value];
         }
+      } else {
+        result[key] = value;
       }
-      return result;
     }
-  }
-
-  mergeScripts(meta, content) {
-    if (!meta.script) {
-      return content;
-    }
-
-    // only one script
-    let result = '';
-    for (const script of meta.script) {
-      result += this.resource.fetch(script, false);
-    }
-
-    return result + content;
+    return result;
   }
 
   buildQueue() {
     const queue = [];
-    for (const test of this.tests.values()) {
-      const filename = test.filename;
-      if (test.skipReasons.length > 0) {
-        this.skip(filename, test.skipReasons);
+    for (const spec of this.specMap.values()) {
+      const filename = spec.filename;
+      if (spec.skipReasons.length > 0) {
+        this.skip(filename, spec.skipReasons);
         continue;
       }
 
-      const lackingIntl = intlRequirements.isLacking(test.requires);
+      const lackingIntl = intlRequirements.isLacking(spec.requires);
       if (lackingIntl) {
         this.skip(filename, [ `requires ${lackingIntl}` ]);
         continue;
       }
 
-      queue.push(test);
+      queue.push(spec);
     }
     return queue;
   }

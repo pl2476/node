@@ -5,11 +5,12 @@
 #ifndef V8_OBJECTS_CODE_H_
 #define V8_OBJECTS_CODE_H_
 
-#include "src/contexts.h"
-#include "src/handler-table.h"
-#include "src/objects.h"
+#include "src/base/bit-field.h"
+#include "src/codegen/handler-table.h"
+#include "src/objects/contexts.h"
 #include "src/objects/fixed-array.h"
 #include "src/objects/heap-object.h"
+#include "src/objects/objects.h"
 #include "src/objects/struct.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -22,7 +23,6 @@ class ByteArray;
 class BytecodeArray;
 class CodeDataContainer;
 class CodeDesc;
-class MaybeObject;
 
 namespace interpreter {
 class Register;
@@ -34,7 +34,7 @@ class Code : public HeapObject {
   NEVER_READ_ONLY_SPACE
   // Opaque data type for encapsulating code flags like kind, inline
   // cache state, and arguments count.
-  typedef uint32_t Flags;
+  using Flags = uint32_t;
 
 #define CODE_KIND_LIST(V)   \
   V(OPTIMIZED_FUNCTION)     \
@@ -43,8 +43,10 @@ class Code : public HeapObject {
   V(BUILTIN)                \
   V(REGEXP)                 \
   V(WASM_FUNCTION)          \
+  V(WASM_TO_CAPI_FUNCTION)  \
   V(WASM_TO_JS_FUNCTION)    \
   V(JS_TO_WASM_FUNCTION)    \
+  V(JS_TO_JS_FUNCTION)      \
   V(WASM_INTERPRETER_ENTRY) \
   V(C_WASM_ENTRY)
 
@@ -59,8 +61,9 @@ class Code : public HeapObject {
 
 #ifdef ENABLE_DISASSEMBLER
   const char* GetName(Isolate* isolate) const;
-  void Disassemble(const char* name, std::ostream& os,
-                   Address current_pc = kNullAddress);
+  V8_EXPORT_PRIVATE void Disassemble(const char* name, std::ostream& os,
+                                     Isolate* isolate,
+                                     Address current_pc = kNullAddress);
 #endif
 
   // [instruction_size]: Size of the native instructions, including embedded
@@ -74,7 +77,7 @@ class Code : public HeapObject {
   // the off-heap instruction stream rather than the on-heap trampoline located
   // at instruction_start.
   inline int InstructionSize() const;
-  int OffHeapInstructionSize() const;
+  V8_EXPORT_PRIVATE int OffHeapInstructionSize() const;
 
   // [relocation_info]: Code relocation information
   DECL_ACCESSORS(relocation_info, ByteArray)
@@ -85,10 +88,10 @@ class Code : public HeapObject {
   // [deoptimization_data]: Array containing data for deopt.
   DECL_ACCESSORS(deoptimization_data, FixedArray)
 
-  // [source_position_table]: ByteArray for the source positions table or
-  // SourcePositionTableWithFrameCache.
+  // [source_position_table]: ByteArray for the source positions table.
   DECL_ACCESSORS(source_position_table, Object)
   inline ByteArray SourcePositionTable() const;
+  inline ByteArray SourcePositionTableIfCollected() const;
 
   // [code_data_container]: A container indirection for all mutable fields.
   DECL_ACCESSORS(code_data_container, CodeDataContainer)
@@ -166,8 +169,8 @@ class Code : public HeapObject {
   inline int code_comments_offset() const;
   inline void set_code_comments_offset(int offset);
   inline Address code_comments() const;
-  int code_comments_size() const;
-  bool has_code_comments() const;
+  V8_EXPORT_PRIVATE int code_comments_size() const;
+  V8_EXPORT_PRIVATE bool has_code_comments() const;
 
   // The size of the executable instruction area, without embedded metadata.
   int ExecutableInstructionSize() const;
@@ -241,7 +244,7 @@ class Code : public HeapObject {
   // this differs from instruction_start (which would point to the off-heap
   // trampoline instead).
   inline Address InstructionStart() const;
-  Address OffHeapInstructionStart() const;
+  V8_EXPORT_PRIVATE Address OffHeapInstructionStart() const;
 
   // Returns the address right after the last instruction.
   inline Address raw_instruction_end() const;
@@ -250,7 +253,7 @@ class Code : public HeapObject {
   // objects this differs from instruction_end (which would point to the
   // off-heap trampoline instead).
   inline Address InstructionEnd() const;
-  Address OffHeapInstructionEnd() const;
+  V8_EXPORT_PRIVATE Address OffHeapInstructionEnd() const;
 
   // Returns the size of the instructions, padding, relocation and unwinding
   // information.
@@ -367,7 +370,11 @@ class Code : public HeapObject {
 
   static inline bool IsWeakObjectInOptimizedCode(HeapObject object);
 
-  // Return true if the function is inlined in the code.
+  // Returns false if this is an embedded builtin Code object that's in
+  // read_only_space and hence doesn't have execute permissions.
+  inline bool IsExecutable();
+
+  // Returns true if the function is inlined in the code.
   bool Inlines(SharedFunctionInfo sfi);
 
   class OptimizedCodeIterator;
@@ -417,7 +424,7 @@ class Code : public HeapObject {
   static constexpr int kHeaderPaddingSize =
       FLAG_enable_embedded_constant_pool ? 28 : 0;
 #elif V8_TARGET_ARCH_S390X
-  static constexpr int kHeaderPaddingSize = 0;
+  static constexpr int kHeaderPaddingSize = COMPRESS_POINTERS_BOOL ? 20 : 0;
 #else
 #error Unknown architecture.
 #endif
@@ -427,7 +434,7 @@ class Code : public HeapObject {
 
   class BodyDescriptor;
 
-  // Flags layout.  BitField<type, shift, size>.
+  // Flags layout.  base::BitField<type, shift, size>.
 #define CODE_FLAGS_BIT_FIELDS(V, _)    \
   V(HasUnwindingInfoField, bool, 1, _) \
   V(KindField, Kind, 5, _)             \
@@ -437,7 +444,7 @@ class Code : public HeapObject {
   DEFINE_BIT_FIELDS(CODE_FLAGS_BIT_FIELDS)
 #undef CODE_FLAGS_BIT_FIELDS
   static_assert(NUMBER_OF_KINDS <= KindField::kMax, "Code::KindField size");
-  static_assert(IsOffHeapTrampoline::kNext <= 32,
+  static_assert(IsOffHeapTrampoline::kLastUsedBit < 32,
                 "Code::flags field exhausted");
 
   // KindSpecificFlags layout (STUB, BUILTIN and OPTIMIZED_FUNCTION)
@@ -450,7 +457,8 @@ class Code : public HeapObject {
   V(IsExceptionCaughtField, bool, 1, _)
   DEFINE_BIT_FIELDS(CODE_KIND_SPECIFIC_FLAGS_BIT_FIELDS)
 #undef CODE_KIND_SPECIFIC_FLAGS_BIT_FIELDS
-  static_assert(IsExceptionCaughtField::kNext <= 32, "KindSpecificFlags full");
+  static_assert(IsExceptionCaughtField::kLastUsedBit < 32,
+                "KindSpecificFlags full");
 
   // The {marked_for_deoptimization} field is accessed from generated code.
   static const int kMarkedForDeoptimizationBit =
@@ -475,7 +483,7 @@ class Code::OptimizedCodeIterator {
   Code Next();
 
  private:
-  Context next_context_;
+  NativeContext next_context_;
   Code current_code_;
   Isolate* isolate_;
 
@@ -570,9 +578,6 @@ class AbstractCode : public HeapObject {
   // Return the source position table.
   inline ByteArray source_position_table();
 
-  inline Object stack_frame_cache();
-  static void SetStackFrameCache(Handle<AbstractCode> abstract_code,
-                                 Handle<SimpleNumberDictionary> cache);
   void DropStackFrameCache();
 
   // Returns the size of instructions and the metadata.
@@ -649,13 +654,14 @@ class DependentCode : public WeakFixedArray {
   };
 
   // Register a code dependency of {cell} on {object}.
-  static void InstallDependency(Isolate* isolate, const MaybeObjectHandle& code,
-                                Handle<HeapObject> object,
-                                DependencyGroup group);
+  V8_EXPORT_PRIVATE static void InstallDependency(Isolate* isolate,
+                                                  const MaybeObjectHandle& code,
+                                                  Handle<HeapObject> object,
+                                                  DependencyGroup group);
 
-  void DeoptimizeDependentCodeGroup(Isolate* isolate, DependencyGroup group);
+  void DeoptimizeDependentCodeGroup(DependencyGroup group);
 
-  bool MarkCodeForDeoptimization(Isolate* isolate, DependencyGroup group);
+  bool MarkCodeForDeoptimization(DependencyGroup group);
 
   // The following low-level accessors are exposed only for tests.
   inline DependencyGroup group();
@@ -703,8 +709,8 @@ class DependentCode : public WeakFixedArray {
 
   inline int flags();
   inline void set_flags(int flags);
-  class GroupField : public BitField<int, 0, 3> {};
-  class CountField : public BitField<int, 3, 27> {};
+  using GroupField = base::BitField<int, 0, 3>;
+  using CountField = base::BitField<int, 3, 27>;
   STATIC_ASSERT(kGroupCount <= GroupField::kMax + 1);
 
   OBJECT_CONSTRUCTORS(DependentCode, WeakFixedArray);
@@ -739,15 +745,15 @@ class BytecodeArray : public FixedArrayBase {
   inline Address GetFirstBytecodeAddress();
 
   // Accessors for frame size.
-  inline int frame_size() const;
-  inline void set_frame_size(int frame_size);
+  inline int32_t frame_size() const;
+  inline void set_frame_size(int32_t frame_size);
 
   // Accessor for register count (derived from frame_size).
   inline int register_count() const;
 
   // Accessors for parameter count (including implicit 'this' receiver).
-  inline int parameter_count() const;
-  inline void set_parameter_count(int number_of_parameters);
+  inline int32_t parameter_count() const;
+  inline void set_parameter_count(int32_t number_of_parameters);
 
   // Register used to pass the incoming new.target or generator object from the
   // fucntion call.
@@ -755,10 +761,6 @@ class BytecodeArray : public FixedArrayBase {
       const;
   inline void set_incoming_new_target_or_generator_register(
       interpreter::Register incoming_new_target_or_generator_register);
-
-  // Accessors for profiling count.
-  inline int interrupt_budget() const;
-  inline void set_interrupt_budget(int interrupt_budget);
 
   // Accessors for OSR loop nesting level.
   inline int osr_loop_nesting_level() const;
@@ -774,13 +776,30 @@ class BytecodeArray : public FixedArrayBase {
   // Accessors for handler table containing offsets of exception handlers.
   DECL_ACCESSORS(handler_table, ByteArray)
 
-  // Accessors for source position table containing mappings between byte code
-  // offset and source position or SourcePositionTableWithFrameCache.
+  // Accessors for source position table. Can contain:
+  // * undefined (initial value)
+  // * empty_byte_array (for bytecode generated for functions that will never
+  // have source positions, e.g. native functions).
+  // * ByteArray (when source positions have been collected for the bytecode)
+  // * exception (when an error occurred while explicitly collecting source
+  // positions for pre-existing bytecode).
   DECL_ACCESSORS(source_position_table, Object)
 
-  inline ByteArray SourcePositionTable();
-  inline bool HasSourcePositionTable();
-  inline void ClearFrameCacheFromSourcePositionTable();
+  // This must only be called if source position collection has already been
+  // attempted. (If it failed because of an exception then it will return
+  // empty_byte_array).
+  inline ByteArray SourcePositionTable() const;
+  // If source positions have not been collected or an exception has been thrown
+  // this will return empty_byte_array.
+  inline ByteArray SourcePositionTableIfCollected() const;
+  inline bool HasSourcePositionTable() const;
+  inline bool DidSourcePositionGenerationFail() const;
+
+  // Indicates that an attempt was made to collect source positions, but that it
+  // failed most likely due to stack exhaustion. When in this state
+  // |SourcePositionTable| will return an empty byte array rather than crashing
+  // as it would if no attempt was ever made to collect source positions.
+  inline void SetSourcePositionsFailedToCollect();
 
   DECL_CAST(BytecodeArray)
 
@@ -796,39 +815,26 @@ class BytecodeArray : public FixedArrayBase {
   DECL_PRINTER(BytecodeArray)
   DECL_VERIFIER(BytecodeArray)
 
-  void Disassemble(std::ostream& os);
+  V8_EXPORT_PRIVATE void Disassemble(std::ostream& os);
 
   void CopyBytecodesTo(BytecodeArray to);
 
   // Bytecode aging
-  bool IsOld() const;
-  void MakeOlder();
+  V8_EXPORT_PRIVATE bool IsOld() const;
+  V8_EXPORT_PRIVATE void MakeOlder();
 
   // Clear uninitialized padding space. This ensures that the snapshot content
   // is deterministic.
   inline void clear_padding();
 
-  // Compares only the bytecode array but not any of the header fields.
-  bool IsBytecodeEqual(const BytecodeArray other) const;
-
-// Layout description.
-#define BYTECODE_ARRAY_FIELDS(V)                           \
-  /* Pointer fields. */                                    \
-  V(kConstantPoolOffset, kTaggedSize)                      \
-  V(kHandlerTableOffset, kTaggedSize)                      \
-  V(kSourcePositionTableOffset, kTaggedSize)               \
-  V(kFrameSizeOffset, kIntSize)                            \
-  V(kParameterSizeOffset, kIntSize)                        \
-  V(kIncomingNewTargetOrGeneratorRegisterOffset, kIntSize) \
-  V(kInterruptBudgetOffset, kIntSize)                      \
-  V(kOSRNestingLevelOffset, kCharSize)                     \
-  V(kBytecodeAgeOffset, kCharSize)                         \
-  /* Total size. */                                        \
-  V(kHeaderSize, 0)
-
+  // Layout description.
   DEFINE_FIELD_OFFSET_CONSTANTS(FixedArrayBase::kHeaderSize,
-                                BYTECODE_ARRAY_FIELDS)
-#undef BYTECODE_ARRAY_FIELDS
+                                TORQUE_GENERATED_BYTECODE_ARRAY_FIELDS)
+
+  // InterpreterEntryTrampoline expects these fields to be next to each other
+  // and writes a 16-bit value to reset them.
+  STATIC_ASSERT(BytecodeArray::kBytecodeAgeOffset ==
+                kOsrNestingLevelOffset + kCharSize);
 
   // Maximal memory consumption for a single BytecodeArray.
   static const int kMaxSize = 512 * MB;
@@ -857,7 +863,9 @@ class DeoptimizationData : public FixedArray {
   static const int kOptimizationIdIndex = 5;
   static const int kSharedFunctionInfoIndex = 6;
   static const int kInliningPositionsIndex = 7;
-  static const int kFirstDeoptEntryIndex = 8;
+  static const int kDeoptExitStartIndex = 8;
+  static const int kNonLazyDeoptCountIndex = 9;
+  static const int kFirstDeoptEntryIndex = 10;
 
   // Offsets of deopt entry elements relative to the start of the entry.
   static const int kBytecodeOffsetRawOffset = 0;
@@ -878,6 +886,8 @@ class DeoptimizationData : public FixedArray {
   DECL_ELEMENT_ACCESSORS(OptimizationId, Smi)
   DECL_ELEMENT_ACCESSORS(SharedFunctionInfo, Object)
   DECL_ELEMENT_ACCESSORS(InliningPositions, PodArray<InliningPosition>)
+  DECL_ELEMENT_ACCESSORS(DeoptExitStart, Smi)
+  DECL_ELEMENT_ACCESSORS(NonLazyDeoptCount, Smi)
 
 #undef DECL_ELEMENT_ACCESSORS
 
@@ -906,10 +916,10 @@ class DeoptimizationData : public FixedArray {
 
   // Allocates a DeoptimizationData.
   static Handle<DeoptimizationData> New(Isolate* isolate, int deopt_entry_count,
-                                        PretenureFlag pretenure);
+                                        AllocationType allocation);
 
   // Return an empty DeoptimizationData.
-  static Handle<DeoptimizationData> Empty(Isolate* isolate);
+  V8_EXPORT_PRIVATE static Handle<DeoptimizationData> Empty(Isolate* isolate);
 
   DECL_CAST(DeoptimizationData)
 
@@ -925,27 +935,6 @@ class DeoptimizationData : public FixedArray {
   static int LengthFor(int entry_count) { return IndexForEntry(entry_count); }
 
   OBJECT_CONSTRUCTORS(DeoptimizationData, FixedArray);
-};
-
-class SourcePositionTableWithFrameCache : public Tuple2 {
- public:
-  DECL_ACCESSORS(source_position_table, ByteArray)
-  DECL_ACCESSORS(stack_frame_cache, SimpleNumberDictionary)
-
-  DECL_CAST(SourcePositionTableWithFrameCache)
-
-// Layout description.
-#define SOURCE_POSITION_TABLE_WITH_FRAME_FIELDS(V) \
-  V(kSourcePositionTableIndex, kTaggedSize)        \
-  V(kStackFrameCacheIndex, kTaggedSize)            \
-  /* Total size. */                                \
-  V(kSize, 0)
-
-  DEFINE_FIELD_OFFSET_CONSTANTS(Struct::kHeaderSize,
-                                SOURCE_POSITION_TABLE_WITH_FRAME_FIELDS)
-#undef SOURCE_POSITION_TABLE_WITH_FRAME_FIELDS
-
-  OBJECT_CONSTRUCTORS(SourcePositionTableWithFrameCache, Tuple2);
 };
 
 }  // namespace internal

@@ -5,14 +5,15 @@
 #ifndef V8_REGEXP_PPC_REGEXP_MACRO_ASSEMBLER_PPC_H_
 #define V8_REGEXP_PPC_REGEXP_MACRO_ASSEMBLER_PPC_H_
 
-#include "src/macro-assembler.h"
-#include "src/ppc/assembler-ppc.h"
+#include "src/codegen/macro-assembler.h"
+#include "src/codegen/ppc/assembler-ppc.h"
 #include "src/regexp/regexp-macro-assembler.h"
 
 namespace v8 {
 namespace internal {
 
-class RegExpMacroAssemblerPPC : public NativeRegExpMacroAssembler {
+class V8_EXPORT_PRIVATE RegExpMacroAssemblerPPC
+    : public NativeRegExpMacroAssembler {
  public:
   RegExpMacroAssemblerPPC(Isolate* isolate, Zone* zone, Mode mode,
                           int registers_to_save);
@@ -22,7 +23,7 @@ class RegExpMacroAssemblerPPC : public NativeRegExpMacroAssembler {
   virtual void AdvanceRegister(int reg, int by);
   virtual void Backtrack();
   virtual void Bind(Label* label);
-  virtual void CheckAtStart(Label* on_at_start);
+  virtual void CheckAtStart(int cp_offset, Label* on_at_start);
   virtual void CheckCharacter(unsigned c, Label* on_equal);
   virtual void CheckCharacterAfterAnd(unsigned c, unsigned mask,
                                       Label* on_equal);
@@ -35,7 +36,7 @@ class RegExpMacroAssemblerPPC : public NativeRegExpMacroAssembler {
   virtual void CheckNotBackReference(int start_reg, bool read_backward,
                                      Label* on_no_match);
   virtual void CheckNotBackReferenceIgnoreCase(int start_reg,
-                                               bool read_backward, bool unicode,
+                                               bool read_backward,
                                                Label* on_no_match);
   virtual void CheckNotCharacter(unsigned c, Label* on_not_equal);
   virtual void CheckNotCharacterAfterAnd(unsigned c, unsigned mask,
@@ -58,9 +59,9 @@ class RegExpMacroAssemblerPPC : public NativeRegExpMacroAssembler {
   virtual void IfRegisterLT(int reg, int comparand, Label* if_lt);
   virtual void IfRegisterEqPos(int reg, Label* if_eq);
   virtual IrregexpImplementation Implementation();
-  virtual void LoadCurrentCharacter(int cp_offset, Label* on_end_of_input,
-                                    bool check_bounds = true,
-                                    int characters = 1);
+  virtual void LoadCurrentCharacterImpl(int cp_offset, Label* on_end_of_input,
+                                        bool check_bounds, int characters,
+                                        int eats_at_least);
   virtual void PopCurrentPosition();
   virtual void PopRegister(int register_index);
   virtual void PushBacktrack(Label* label);
@@ -111,8 +112,9 @@ class RegExpMacroAssemblerPPC : public NativeRegExpMacroAssembler {
   // the frame in GetCode.
   static const int kSuccessfulCaptures = kInputString - kPointerSize;
   static const int kStringStartMinusOne = kSuccessfulCaptures - kPointerSize;
+  static const int kBacktrackCount = kStringStartMinusOne - kSystemPointerSize;
   // First register address. Following registers are below it on the stack.
-  static const int kRegisterZero = kStringStartMinusOne - kPointerSize;
+  static const int kRegisterZero = kBacktrackCount - kSystemPointerSize;
 
   // Initial size of code buffer.
   static const int kRegExpCodeSize = 1024;

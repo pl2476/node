@@ -2,11 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --harmony-string-matchall
-
 var s = "baa";
 
-assertEquals([["b"]], [...s.matchAll(/./)]);
+assertEquals([["b"], ["a"], ["a"]], [...s.matchAll(/./g)]);
 
 RegExp.prototype[Symbol.matchAll] = () => 42;
-assertEquals(42, s.matchAll(/a./));
+assertEquals(42, s.matchAll(/a./g));

@@ -49,6 +49,7 @@ using v8::Integer;
 using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
+using v8::NewStringType;
 using v8::Null;
 using v8::Number;
 using v8::Object;
@@ -69,11 +70,12 @@ static void GetHostname(const FunctionCallbackInfo<Value>& args) {
     return args.GetReturnValue().SetUndefined();
   }
 
-  args.GetReturnValue().Set(OneByteString(env->isolate(), buf));
+  args.GetReturnValue().Set(
+      String::NewFromUtf8(env->isolate(), buf, NewStringType::kNormal)
+          .ToLocalChecked());
 }
 
-
-static void GetOSType(const FunctionCallbackInfo<Value>& args) {
+static void GetOSInformation(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   uv_utsname_t info;
   int err = uv_os_uname(&info);
@@ -84,24 +86,17 @@ static void GetOSType(const FunctionCallbackInfo<Value>& args) {
     return args.GetReturnValue().SetUndefined();
   }
 
-  args.GetReturnValue().Set(OneByteString(env->isolate(), info.sysname));
+  // [sysname, version, release]
+  Local<Value> osInformation[] = {
+    String::NewFromUtf8(env->isolate(), info.sysname).ToLocalChecked(),
+    String::NewFromUtf8(env->isolate(), info.version).ToLocalChecked(),
+    String::NewFromUtf8(env->isolate(), info.release).ToLocalChecked()
+  };
+
+  args.GetReturnValue().Set(Array::New(env->isolate(),
+                                       osInformation,
+                                       arraysize(osInformation)));
 }
-
-
-static void GetOSRelease(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  uv_utsname_t info;
-  int err = uv_os_uname(&info);
-
-  if (err != 0) {
-    CHECK_GE(args.Length(), 1);
-    env->CollectUVExceptionInfo(args[args.Length() - 1], err, "uv_os_uname");
-    return args.GetReturnValue().SetUndefined();
-  }
-
-  args.GetReturnValue().Set(OneByteString(env->isolate(), info.release));
-}
-
 
 static void GetCPUInfo(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -137,16 +132,12 @@ static void GetCPUInfo(const FunctionCallbackInfo<Value>& args) {
 
 static void GetFreeMemory(const FunctionCallbackInfo<Value>& args) {
   double amount = uv_get_free_memory();
-  if (amount < 0)
-    return;
   args.GetReturnValue().Set(amount);
 }
 
 
 static void GetTotalMemory(const FunctionCallbackInfo<Value>& args) {
   double amount = uv_get_total_memory();
-  if (amount < 0)
-    return;
   args.GetReturnValue().Set(amount);
 }
 
@@ -164,7 +155,7 @@ static void GetLoadAvg(const FunctionCallbackInfo<Value>& args) {
   Local<Float64Array> array = args[0].As<Float64Array>();
   CHECK_EQ(array->Length(), 3);
   Local<ArrayBuffer> ab = array->Buffer();
-  double* loadavg = static_cast<double*>(ab->GetContents().Data());
+  double* loadavg = static_cast<double*>(ab->GetBackingStore()->Data());
   uv_loadavg(loadavg);
 }
 
@@ -202,7 +193,7 @@ static void GetInterfaceAddresses(const FunctionCallbackInfo<Value>& args) {
     // they name the interface from any input that uses UTF-8, which should be
     // the most frequent case by far these days.)
     name = String::NewFromUtf8(isolate, raw_name,
-        v8::NewStringType::kNormal).ToLocalChecked();
+        NewStringType::kNormal).ToLocalChecked();
 
     snprintf(mac.data(),
              mac.size(),
@@ -262,7 +253,7 @@ static void GetHomeDirectory(const FunctionCallbackInfo<Value>& args) {
 
   Local<String> home = String::NewFromUtf8(env->isolate(),
                                            buf,
-                                           v8::NewStringType::kNormal,
+                                           NewStringType::kNormal,
                                            len).ToLocalChecked();
   args.GetReturnValue().Set(home);
 }
@@ -295,7 +286,7 @@ static void GetUserInfo(const FunctionCallbackInfo<Value>& args) {
     return args.GetReturnValue().SetUndefined();
   }
 
-  OnScopeLeave free_passwd([&]() { uv_os_free_passwd(&pwd); });
+  auto free_passwd = OnScopeLeave([&]() { uv_os_free_passwd(&pwd); });
 
   Local<Value> error;
 
@@ -391,13 +382,12 @@ void Initialize(Local<Object> target,
   env->SetMethod(target, "getTotalMem", GetTotalMemory);
   env->SetMethod(target, "getFreeMem", GetFreeMemory);
   env->SetMethod(target, "getCPUs", GetCPUInfo);
-  env->SetMethod(target, "getOSType", GetOSType);
-  env->SetMethod(target, "getOSRelease", GetOSRelease);
   env->SetMethod(target, "getInterfaceAddresses", GetInterfaceAddresses);
   env->SetMethod(target, "getHomeDirectory", GetHomeDirectory);
   env->SetMethod(target, "getUserInfo", GetUserInfo);
   env->SetMethod(target, "setPriority", SetPriority);
   env->SetMethod(target, "getPriority", GetPriority);
+  env->SetMethod(target, "getOSInformation", GetOSInformation);
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(env->isolate(), "isBigEndian"),
               Boolean::New(env->isolate(), IsBigEndian())).Check();

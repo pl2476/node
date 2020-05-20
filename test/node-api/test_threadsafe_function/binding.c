@@ -129,6 +129,19 @@ static void call_js(napi_env env, napi_value cb, void* hint, void* data) {
   }
 }
 
+static napi_ref alt_ref;
+// Getting the data into JS with the alternative referece
+static void call_ref(napi_env env, napi_value _, void* hint, void* data) {
+  if (!(env == NULL || alt_ref == NULL)) {
+    napi_value fn, argv, undefined;
+    NAPI_CALL_RETURN_VOID(env, napi_get_reference_value(env, alt_ref, &fn));
+    NAPI_CALL_RETURN_VOID(env, napi_create_int32(env, *(int*)data, &argv));
+    NAPI_CALL_RETURN_VOID(env, napi_get_undefined(env, &undefined));
+    NAPI_CALL_RETURN_VOID(env, napi_call_function(env, undefined, fn, 1, &argv,
+        NULL));
+  }
+}
+
 // Cleanup
 static napi_value StopThread(napi_env env, napi_callback_info info) {
   size_t argc = 2;
@@ -168,20 +181,31 @@ static void join_the_threads(napi_env env, void *data, void *hint) {
       napi_call_function(env, undefined, js_cb, 0, NULL, NULL));
   NAPI_CALL_RETURN_VOID(env, napi_delete_reference(env,
       the_hint->js_finalize_cb));
+  if (alt_ref != NULL) {
+    NAPI_CALL_RETURN_VOID(env, napi_delete_reference(env, alt_ref));
+    alt_ref = NULL;
+  }
 }
 
 static napi_value StartThreadInternal(napi_env env,
                                       napi_callback_info info,
                                       napi_threadsafe_function_call_js cb,
-                                      bool block_on_full) {
+                                      bool block_on_full,
+                                      bool alt_ref_js_cb) {
+
   size_t argc = 4;
   napi_value argv[4];
+
+  NAPI_CALL(env, napi_get_cb_info(env, info, &argc, argv, NULL, NULL));
+  if (alt_ref_js_cb) {
+    NAPI_CALL(env, napi_create_reference(env, argv[0], 1, &alt_ref));
+    argv[0] = NULL;
+  }
 
   ts_info.block_on_full =
       (block_on_full ? napi_tsfn_blocking : napi_tsfn_nonblocking);
 
   NAPI_ASSERT(env, (ts_fn == NULL), "Existing thread-safe function");
-  NAPI_CALL(env, napi_get_cb_info(env, info, &argc, argv, NULL, NULL));
   napi_value async_name;
   NAPI_CALL(env, napi_create_string_utf8(env, "N-API Thread-safe Function Test",
       NAPI_AUTO_LENGTH, &async_name));
@@ -223,16 +247,78 @@ static napi_value Release(napi_env env, napi_callback_info info) {
 
 // Startup
 static napi_value StartThread(napi_env env, napi_callback_info info) {
-  return StartThreadInternal(env, info, call_js, true);
+  return StartThreadInternal(env, info, call_js,
+    /** block_on_full */true, /** alt_ref_js_cb */false);
 }
 
 static napi_value StartThreadNonblocking(napi_env env,
                                          napi_callback_info info) {
-  return StartThreadInternal(env, info, call_js, false);
+  return StartThreadInternal(env, info, call_js,
+    /** block_on_full */false, /** alt_ref_js_cb */false);
 }
 
 static napi_value StartThreadNoNative(napi_env env, napi_callback_info info) {
-  return StartThreadInternal(env, info, NULL, true);
+  return StartThreadInternal(env, info, NULL,
+    /** block_on_full */true, /** alt_ref_js_cb */false);
+}
+
+static napi_value StartThreadNoJsFunc(napi_env env, napi_callback_info info) {
+  return StartThreadInternal(env, info, call_ref,
+    /** block_on_full */true, /** alt_ref_js_cb */true);
+}
+
+static void DeadlockTestDummyMarshaller(napi_env env,
+                                        napi_value empty0,
+                                        void* empty1,
+                                        void* empty2) {}
+
+static napi_value TestDeadlock(napi_env env, napi_callback_info info) {
+  napi_threadsafe_function tsfn;
+  napi_status status;
+  napi_value async_name;
+  napi_value return_value;
+
+  // Create an object to store the returned information.
+  NAPI_CALL(env, napi_create_object(env, &return_value));
+
+  // Create a string to be used with the thread-safe function.
+  NAPI_CALL(env, napi_create_string_utf8(env,
+                                     "N-API Thread-safe Function Deadlock Test",
+                                     NAPI_AUTO_LENGTH,
+                                     &async_name));
+
+  // Create the thread-safe function with a single queue slot and a single thread.
+  NAPI_CALL(env, napi_create_threadsafe_function(env,
+                                                 NULL,
+                                                 NULL,
+                                                 async_name,
+                                                 1,
+                                                 1,
+                                                 NULL,
+                                                 NULL,
+                                                 NULL,
+                                                 DeadlockTestDummyMarshaller,
+                                                 &tsfn));
+
+  // Call the threadsafe function. This should succeed and fill the queue.
+  NAPI_CALL(env, napi_call_threadsafe_function(tsfn, NULL, napi_tsfn_blocking));
+
+  // Call the threadsafe function. This should not block, but return
+  // `napi_would_deadlock`. We save the resulting status in an object to be
+  // returned.
+  status = napi_call_threadsafe_function(tsfn, NULL, napi_tsfn_blocking);
+  add_returned_status(env,
+                      "deadlockTest",
+                      return_value,
+                      "Main thread would deadlock",
+                      napi_would_deadlock,
+                      status);
+
+  // Clean up the thread-safe function before returning.
+  NAPI_CALL(env, napi_release_threadsafe_function(tsfn, napi_tsfn_release));
+
+  // Return the result.
+  return return_value;
 }
 
 // Module init
@@ -269,9 +355,11 @@ static napi_value Init(napi_env env, napi_value exports) {
     DECLARE_NAPI_PROPERTY("StartThread", StartThread),
     DECLARE_NAPI_PROPERTY("StartThreadNoNative", StartThreadNoNative),
     DECLARE_NAPI_PROPERTY("StartThreadNonblocking", StartThreadNonblocking),
+    DECLARE_NAPI_PROPERTY("StartThreadNoJsFunc", StartThreadNoJsFunc),
     DECLARE_NAPI_PROPERTY("StopThread", StopThread),
     DECLARE_NAPI_PROPERTY("Unref", Unref),
     DECLARE_NAPI_PROPERTY("Release", Release),
+    DECLARE_NAPI_PROPERTY("TestDeadlock", TestDeadlock),
   };
 
   NAPI_CALL(env, napi_define_properties(env, exports,

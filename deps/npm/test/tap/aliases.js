@@ -15,7 +15,7 @@ const { Dir, File } = Tacks
 const readdirAsync = BB.promisify(fs.readdir)
 const readFileAsync = BB.promisify(fs.readFile)
 
-const testDir = path.join(__dirname, path.basename(__filename, '.js'))
+const testDir = common.pkg
 
 let server
 test('setup', t => {
@@ -98,12 +98,12 @@ test('installs an npm: protocol alias package', t => {
         bar: {
           version: '1.2.3',
           from: 'bar@npm:foo@1.2.3',
-          resolved: 'http://localhost:1337/foo/-/foo-1.2.3.tgz'
+          resolved: 'http://localhost:' + common.port + '/foo/-/foo-1.2.3.tgz'
         },
         foo: {
           version: '1.2.3',
           from: 'foo@1.2.3',
-          resolved: 'http://localhost:1337/foo/-/foo-1.2.3.tgz'
+          resolved: 'http://localhost:' + common.port + '/foo/-/foo-1.2.3.tgz'
         }
       }
     }, 'both dependencies listed correctly')
@@ -116,18 +116,18 @@ test('installs an npm: protocol alias package', t => {
     t.comment(stdout)
     t.comment(stderr)
     const parsed = JSON.parse(stdout)
-    t.deepEqual(parsed, {
+    t.match(parsed, {
       foo: {
         current: '1.2.3',
         wanted: '1.2.4',
         latest: '1.2.4',
-        location: 'node_modules/foo'
+        location: /node_modules[/\\]foo/
       },
       bar: {
         current: 'npm:foo@1.2.3',
         wanted: 'npm:foo@1.2.4',
         latest: 'npm:foo@1.2.4',
-        location: 'node_modules/bar'
+        location: /node_modules[/\\]bar/
       }
     }, 'both regular and aliased dependency reported')
     return common.npm([
@@ -149,12 +149,12 @@ test('installs an npm: protocol alias package', t => {
         bar: {
           version: '1.2.4',
           from: 'bar@npm:foo@1.2.4',
-          resolved: 'http://localhost:1337/foo/-/foo-1.2.4.tgz'
+          resolved: 'http://localhost:' + common.port + '/foo/-/foo-1.2.4.tgz'
         },
         foo: {
           version: '1.2.4',
           from: 'foo@1.2.4',
-          resolved: 'http://localhost:1337/foo/-/foo-1.2.4.tgz'
+          resolved: 'http://localhost:' + common.port + '/foo/-/foo-1.2.4.tgz'
         }
       }
     }, 'ls shows updated packages')

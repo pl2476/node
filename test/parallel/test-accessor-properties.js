@@ -17,43 +17,25 @@ const UDP = internalBinding('udp_wrap').UDP;
 {
   // Should throw instead of raise assertions
   assert.throws(() => {
-    TTY.prototype.bytesRead;
-  }, TypeError);
-
-  assert.throws(() => {
-    TTY.prototype.fd;
-  }, TypeError);
-
-  assert.throws(() => {
-    TTY.prototype._externalStream;
-  }, TypeError);
-
-  assert.throws(() => {
     UDP.prototype.fd;
   }, TypeError);
 
   const StreamWrapProto = Object.getPrototypeOf(TTY.prototype);
+  const properties = ['bytesRead', 'fd', '_externalStream'];
 
-  // Should not throw for Object.getOwnPropertyDescriptor
-  assert.strictEqual(
-    typeof Object.getOwnPropertyDescriptor(StreamWrapProto, 'bytesRead'),
-    'object'
-  );
+  properties.forEach((property) => {
+    // Should throw instead of raise assertions
+    assert.throws(() => {
+      TTY.prototype[property];
+    }, TypeError, `Missing expected TypeError for TTY.prototype.${property}`);
 
-  assert.strictEqual(
-    typeof Object.getOwnPropertyDescriptor(StreamWrapProto, 'fd'),
-    'object'
-  );
-
-  assert.strictEqual(
-    typeof Object.getOwnPropertyDescriptor(StreamWrapProto, '_externalStream'),
-    'object'
-  );
-
-  assert.strictEqual(
-    typeof Object.getOwnPropertyDescriptor(StreamWrapProto, 'fd'),
-    'object'
-  );
+    // Should not throw for Object.getOwnPropertyDescriptor
+    assert.strictEqual(
+      typeof Object.getOwnPropertyDescriptor(StreamWrapProto, property),
+      'object',
+      'typeof property descriptor ' + property + ' is not \'object\''
+    );
+  });
 
   if (common.hasCrypto) { // eslint-disable-line node-core/crypto-check
     // There are accessor properties in crypto too

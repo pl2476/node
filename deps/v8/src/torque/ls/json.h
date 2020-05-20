@@ -6,11 +6,11 @@
 #define V8_TORQUE_LS_JSON_H_
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "src/base/logging.h"
-#include "src/base/template-utils.h"
 
 namespace v8 {
 namespace internal {
@@ -26,6 +26,14 @@ struct JsonValue {
  public:
   enum { OBJECT, ARRAY, STRING, NUMBER, BOOL, IS_NULL } tag;
 
+  // JsonValues can only be moved, not copied.
+  JsonValue() V8_NOEXCEPT = default;
+  constexpr JsonValue(const JsonValue& other) = delete;
+  JsonValue& operator=(const JsonValue& other) = delete;
+
+  JsonValue(JsonValue&& other) V8_NOEXCEPT = default;
+  JsonValue& operator=(JsonValue&& other) V8_NOEXCEPT = default;
+
   static JsonValue From(double number) {
     JsonValue result;
     result.tag = JsonValue::NUMBER;
@@ -36,7 +44,7 @@ struct JsonValue {
   static JsonValue From(JsonObject object) {
     JsonValue result;
     result.tag = JsonValue::OBJECT;
-    result.object_ = base::make_unique<JsonObject>(std::move(object));
+    result.object_ = std::make_unique<JsonObject>(std::move(object));
     return result;
   }
 
@@ -57,7 +65,7 @@ struct JsonValue {
   static JsonValue From(JsonArray array) {
     JsonValue result;
     result.tag = JsonValue::ARRAY;
-    result.array_ = base::make_unique<JsonArray>(std::move(array));
+    result.array_ = std::make_unique<JsonArray>(std::move(array));
     return result;
   }
 

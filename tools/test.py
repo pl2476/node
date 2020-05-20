@@ -29,7 +29,6 @@
 
 
 from __future__ import print_function
-import imp
 import logging
 import optparse
 import os
@@ -45,6 +44,28 @@ import multiprocessing
 import errno
 import copy
 
+
+if sys.version_info >= (3, 5):
+  from importlib import machinery, util
+  def get_module(name, path):
+    loader_details = (machinery.SourceFileLoader, machinery.SOURCE_SUFFIXES)
+    spec = machinery.FileFinder(path, loader_details).find_spec(name)
+    module = util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+else:
+  import imp
+  def get_module(name, path):
+    file = None
+    try:
+      (file, pathname, description) = imp.find_module(name, [path])
+      return imp.load_module(name, file, pathname, description)
+    finally:
+      if file:
+        file.close()
+
+
+from io import open
 from os.path import join, dirname, abspath, basename, isdir, exists
 from datetime import datetime
 try:
@@ -77,6 +98,7 @@ class ProgressIndicator(object):
 
   def __init__(self, cases, flaky_tests_mode):
     self.cases = cases
+    self.serial_id = 0
     self.flaky_tests_mode = flaky_tests_mode
     self.parallel_queue = Queue(len(cases))
     self.sequential_queue = Queue(len(cases))
@@ -120,7 +142,7 @@ class ProgressIndicator(object):
       # Wait for the remaining threads
       for thread in threads:
         # Use a timeout so that signals (ctrl-c) will be processed.
-        thread.join(timeout=10000000)
+        thread.join(timeout=1000000)
     except (KeyboardInterrupt, SystemExit):
       self.shutdown_event.set()
     except Exception:
@@ -146,6 +168,8 @@ class ProgressIndicator(object):
       case = test
       case.thread_id = thread_id
       self.lock.acquire()
+      case.serial_id = self.serial_id
+      self.serial_id += 1
       self.AboutToRun(case)
       self.lock.release()
       try:
@@ -504,6 +528,7 @@ class TestCase(object):
     self.mode = mode
     self.parallel = False
     self.disable_core_files = False
+    self.serial_id = 0
     self.thread_id = 0
 
   def IsNegative(self):
@@ -535,6 +560,7 @@ class TestCase(object):
   def Run(self):
     try:
       result = self.RunCommand(self.GetCommand(), {
+        "TEST_SERIAL_ID": "%d" % self.serial_id,
         "TEST_THREAD_ID": "%d" % self.thread_id,
         "TEST_PARALLEL" : "%d" % self.parallel
       })
@@ -638,15 +664,10 @@ def RunProcess(context, timeout, args, **rest):
       prev_error_mode = Win32SetErrorMode(error_mode)
       Win32SetErrorMode(error_mode | prev_error_mode)
 
-  faketty = rest.pop('faketty', False)
-  pty_out = rest.pop('pty_out')
-
   process = subprocess.Popen(
     args = popen_args,
     **rest
   )
-  if faketty:
-    os.close(rest['stdout'])
   if utils.IsWindows() and context.suppress_dialogs and prev_error_mode != SEM_INVALID_VALUE:
     Win32SetErrorMode(prev_error_mode)
   # Compute the end time - if the process crosses this limit we
@@ -658,28 +679,6 @@ def RunProcess(context, timeout, args, **rest):
   # loop and keep track of whether or not it times out.
   exit_code = None
   sleep_time = INITIAL_SLEEP_TIME
-  output = ''
-  if faketty:
-    while True:
-      if time.time() >= end_time:
-        # Kill the process and wait for it to exit.
-        KillTimedOutProcess(context, process.pid)
-        exit_code = process.wait()
-        timed_out = True
-        break
-
-      # source: http://stackoverflow.com/a/12471855/1903116
-      # related: http://stackoverflow.com/q/11165521/1903116
-      try:
-        data = os.read(pty_out, 9999)
-      except OSError as e:
-        if e.errno != errno.EIO:
-          raise
-        break # EIO means EOF on some systems
-      else:
-        if not data: # EOF
-          break
-        output += data
 
   while exit_code is None:
     if (not end_time is None) and (time.time() >= end_time):
@@ -693,7 +692,7 @@ def RunProcess(context, timeout, args, **rest):
       sleep_time = sleep_time * SLEEP_TIME_FACTOR
       if sleep_time > MAX_SLEEP_TIME:
         sleep_time = MAX_SLEEP_TIME
-  return (process, exit_code, timed_out, output)
+  return (process, exit_code, timed_out)
 
 
 def PrintError(str):
@@ -715,36 +714,21 @@ def CheckedUnlink(name):
       PrintError("os.unlink() " + str(e))
     break
 
-def Execute(args, context, timeout=None, env=None, faketty=False, disable_core_files=False, input=None):
+def Execute(args, context, timeout=None, env=None, disable_core_files=False, stdin=None):
+  (fd_out, outname) = tempfile.mkstemp()
+  (fd_err, errname) = tempfile.mkstemp()
+
   if env is None:
     env = {}
-  if faketty:
-    import pty
-    (out_master, fd_out) = pty.openpty()
-    fd_in = fd_err = fd_out
-    pty_out = out_master
-
-    if input is not None:
-      # Before writing input data, disable echo so the input doesn't show
-      # up as part of the output.
-      import termios
-      attr = termios.tcgetattr(fd_in)
-      attr[3] = attr[3] & ~termios.ECHO
-      termios.tcsetattr(fd_in, termios.TCSADRAIN, attr)
-
-      os.write(pty_out, input)
-      os.write(pty_out, '\x04') # End-of-file marker (Ctrl+D)
-  else:
-    (fd_out, outname) = tempfile.mkstemp()
-    (fd_err, errname) = tempfile.mkstemp()
-    fd_in = 0
-    pty_out = None
-
   env_copy = os.environ.copy()
 
   # Remove NODE_PATH
   if "NODE_PATH" in env_copy:
     del env_copy["NODE_PATH"]
+
+  # Remove NODE_REPL_EXTERNAL_MODULE
+  if "NODE_REPL_EXTERNAL_MODULE" in env_copy:
+    del env_copy["NODE_REPL_EXTERNAL_MODULE"]
 
   # Extend environment
   for key, value in env.items():
@@ -758,28 +742,22 @@ def Execute(args, context, timeout=None, env=None, faketty=False, disable_core_f
       resource.setrlimit(resource.RLIMIT_CORE, (0,0))
     preexec_fn = disableCoreFiles
 
-  (process, exit_code, timed_out, output) = RunProcess(
+  (process, exit_code, timed_out) = RunProcess(
     context,
     timeout,
     args = args,
-    stdin = fd_in,
+    stdin = stdin,
     stdout = fd_out,
     stderr = fd_err,
     env = env_copy,
-    faketty = faketty,
-    pty_out = pty_out,
     preexec_fn = preexec_fn
   )
-  if faketty:
-    os.close(out_master)
-    errors = ''
-  else:
-    os.close(fd_out)
-    os.close(fd_err)
-    output = open(outname).read()
-    errors = open(errname).read()
-    CheckedUnlink(outname)
-    CheckedUnlink(errname)
+  os.close(fd_out)
+  os.close(fd_err)
+  output = open(outname, encoding='utf8').read()
+  errors = open(errname, encoding='utf8').read()
+  CheckedUnlink(outname)
+  CheckedUnlink(errname)
 
   return CommandOutput(exit_code, timed_out, output, errors)
 
@@ -833,18 +811,13 @@ class TestRepository(TestSuite):
     if self.is_loaded:
       return self.config
     self.is_loaded = True
-    file = None
-    try:
-      (file, pathname, description) = imp.find_module('testcfg', [ self.path ])
-      module = imp.load_module('testcfg', file, pathname, description)
-      self.config = module.GetConfiguration(context, self.path)
-      if hasattr(self.config, 'additional_flags'):
-        self.config.additional_flags += context.node_args
-      else:
-        self.config.additional_flags = context.node_args
-    finally:
-      if file:
-        file.close()
+
+    module = get_module('testcfg', self.path)
+    self.config = module.GetConfiguration(context, self.path)
+    if hasattr(self.config, 'additional_flags'):
+      self.config.additional_flags += context.node_args
+    else:
+      self.config.additional_flags = context.node_args
     return self.config
 
   def GetBuildRequirements(self, path, context):
@@ -1518,6 +1491,7 @@ IGNORED_SUITES = [
   'addons',
   'benchmark',
   'doctool',
+  'embedding',
   'internet',
   'js-native-api',
   'node-api',
@@ -1561,7 +1535,7 @@ def Main():
   logger.addHandler(ch)
   logger.setLevel(logging.INFO)
   if options.logfile:
-    fh = logging.FileHandler(options.logfile, mode='wb')
+    fh = logging.FileHandler(options.logfile, encoding='utf-8', mode='w')
     logger.addHandler(fh)
 
   workspace = abspath(join(dirname(sys.argv[0]), '..'))

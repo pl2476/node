@@ -8,6 +8,7 @@
 #include "libplatform/libplatform.h"
 #include "node_internals.h"
 #include "snapshot_builder.h"
+#include "util-inl.h"
 #include "v8.h"
 
 #ifdef _WIN32
@@ -17,6 +18,8 @@ int wmain(int argc, wchar_t* argv[]) {
 #else   // UNIX
 int main(int argc, char* argv[]) {
 #endif  // _WIN32
+
+  v8::V8::SetFlagsFromString("--random_seed=42");
 
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0] << " <path/to/output.cc>\n";

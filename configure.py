@@ -11,8 +11,11 @@ import re
 import shlex
 import subprocess
 import shutil
-import string
+import bz2
+import io
+
 from distutils.spawn import find_executable as which
+from distutils.version import StrictVersion
 
 # If not run from node/, cd to node/.
 os.chdir(os.path.dirname(__file__) or '.')
@@ -34,6 +37,7 @@ import nodedownload
 # imports in tools/
 sys.path.insert(0, 'tools')
 import getmoduleversion
+import getnapibuildversion
 from gyp_node import run_gyp
 
 # imports in deps/v8/tools/node
@@ -45,10 +49,13 @@ parser = optparse.OptionParser()
 
 valid_os = ('win', 'mac', 'solaris', 'freebsd', 'openbsd', 'linux',
             'android', 'aix', 'cloudabi')
-valid_arch = ('arm', 'arm64', 'ia32', 'ppc',
-              'ppc64', 'x32','x64', 'x86', 'x86_64', 's390', 's390x')
+valid_arch = ('arm', 'arm64', 'ia32', 'mips', 'mipsel', 'mips64el', 'ppc',
+              'ppc64', 'x32','x64', 'x86', 'x86_64', 's390x')
 valid_arm_float_abi = ('soft', 'softfp', 'hard')
 valid_arm_fpu = ('vfp', 'vfpv3', 'vfpv3-d16', 'neon')
+valid_mips_arch = ('loongson', 'r1', 'r2', 'r6', 'rx')
+valid_mips_fpu = ('fp32', 'fp64', 'fpxx')
+valid_mips_float_abi = ('soft', 'hard')
 valid_intl_modes = ('none', 'small-icu', 'full-icu', 'system-icu')
 with open ('tools/icu/icu_versions.json') as f:
   icu_versions = json.load(f)
@@ -82,6 +89,11 @@ parser.add_option('--debug',
     dest='debug',
     help='also build debug build')
 
+parser.add_option('--debug-node',
+    action='store_true',
+    dest='debug_node',
+    help='build the Node.js part of the binary with debugging symbols')
+
 parser.add_option('--dest-cpu',
     action='store',
     dest='dest_cpu',
@@ -105,6 +117,11 @@ parser.add_option('--dest-os',
     choices=valid_os,
     help='operating system to build for ({0})'.format(', '.join(valid_os)))
 
+parser.add_option('--error-on-warn',
+    action='store_true',
+    dest='error_on_warn',
+    help='Turn compiler warnings into errors for node core sources.')
+
 parser.add_option('--gdb',
     action='store_true',
     dest='gdb',
@@ -126,13 +143,6 @@ parser.add_option("--partly-static",
     dest="partly_static",
     help="Generate an executable with libgcc and libstdc++ libraries. This "
          "will not work on OSX when using the default compilation environment")
-
-parser.add_option("--enable-vtune-profiling",
-    action="store_true",
-    dest="enable_vtune_profiling",
-    help="Enable profiling support for Intel VTune profiler to profile "
-         "JavaScript code executed in nodejs. This feature is only available "
-         "for x32, x86, and x64 architectures.")
 
 parser.add_option("--enable-pgo-generate",
     action="store_true",
@@ -296,25 +306,46 @@ shared_optgroup.add_option('--shared-zlib-libpath',
     dest='shared_zlib_libpath',
     help='a directory to search for the shared zlib DLL')
 
+shared_optgroup.add_option('--shared-brotli',
+    action='store_true',
+    dest='shared_brotli',
+    help='link to a shared brotli DLL instead of static linking')
+
+shared_optgroup.add_option('--shared-brotli-includes',
+    action='store',
+    dest='shared_brotli_includes',
+    help='directory containing brotli header files')
+
+shared_optgroup.add_option('--shared-brotli-libname',
+    action='store',
+    dest='shared_brotli_libname',
+    default='brotlidec,brotlienc',
+    help='alternative lib name to link to [default: %default]')
+
+shared_optgroup.add_option('--shared-brotli-libpath',
+    action='store',
+    dest='shared_brotli_libpath',
+    help='a directory to search for the shared brotli DLL')
+
 shared_optgroup.add_option('--shared-cares',
     action='store_true',
-    dest='shared_libcares',
+    dest='shared_cares',
     help='link to a shared cares DLL instead of static linking')
 
 shared_optgroup.add_option('--shared-cares-includes',
     action='store',
-    dest='shared_libcares_includes',
+    dest='shared_cares_includes',
     help='directory containing cares header files')
 
 shared_optgroup.add_option('--shared-cares-libname',
     action='store',
-    dest='shared_libcares_libname',
+    dest='shared_cares_libname',
     default='cares',
     help='alternative lib name to link to [default: %default]')
 
 shared_optgroup.add_option('--shared-cares-libpath',
     action='store',
-    dest='shared_libcares_libpath',
+    dest='shared_cares_libpath',
     help='a directory to search for the shared cares DLL')
 
 parser.add_option_group(shared_optgroup)
@@ -346,6 +377,11 @@ parser.add_option('--enable-trace-maps',
     dest='trace_maps',
     help='Enable the --trace-maps flag in V8 (use at your own risk)')
 
+parser.add_option('--experimental-enable-pointer-compression',
+    action='store_true',
+    dest='enable_pointer_compression',
+    help='[Experimental] Enable V8 pointer compression (limits max heap to 4GB and breaks ABI compatibility)')
+
 parser.add_option('--v8-options',
     action='store',
     dest='v8_options',
@@ -365,6 +401,30 @@ parser.add_option('--with-arm-fpu',
     help='ARM FPU mode ({0}) [default: %default]'.format(
         ', '.join(valid_arm_fpu)))
 
+parser.add_option('--with-mips-arch-variant',
+    action='store',
+    dest='mips_arch_variant',
+    default='r2',
+    choices=valid_mips_arch,
+    help='MIPS arch variant ({0}) [default: %default]'.format(
+        ', '.join(valid_mips_arch)))
+
+parser.add_option('--with-mips-fpu-mode',
+    action='store',
+    dest='mips_fpu_mode',
+    default='fp32',
+    choices=valid_mips_fpu,
+    help='MIPS FPU mode ({0}) [default: %default]'.format(
+        ', '.join(valid_mips_fpu)))
+
+parser.add_option('--with-mips-float-abi',
+    action='store',
+    dest='mips_float_abi',
+    default='hard',
+    choices=valid_mips_float_abi,
+    help='MIPS floating-point ABI ({0}) [default: %default]'.format(
+        ', '.join(valid_mips_float_abi)))
+
 parser.add_option('--with-dtrace',
     action='store_true',
     dest='with_dtrace',
@@ -378,13 +438,17 @@ parser.add_option('--with-etw',
 parser.add_option('--use-largepages',
     action='store_true',
     dest='node_use_large_pages',
-    help='build with Large Pages support. This feature is supported only on Linux kernel' +
-         '>= 2.6.38 with Transparent Huge pages enabled')
+    help='This option has no effect. --use-largepages is now a runtime option.')
+
+parser.add_option('--use-largepages-script-lld',
+    action='store_true',
+    dest='node_use_large_pages_script_lld',
+    help='This option has no effect. --use-largepages is now a runtime option.')
 
 intl_optgroup.add_option('--with-intl',
     action='store',
     dest='with_intl',
-    default='small-icu',
+    default='full-icu',
     choices=valid_intl_modes,
     help='Intl mode (valid choices: {0}) [default: %default]'.format(
         ', '.join(valid_intl_modes)))
@@ -416,15 +480,28 @@ intl_optgroup.add_option('--with-icu-source',
         'the icu4c source archive. '
         'v%d.x or later recommended.' % icu_versions['minimum_icu'])
 
+intl_optgroup.add_option('--with-icu-default-data-dir',
+    action='store',
+    dest='with_icu_default_data_dir',
+    help='Path to the icuXXdt{lb}.dat file. If unspecified, ICU data will '
+         'only be read if the NODE_ICU_DATA environment variable or the '
+         '--icu-data-dir runtime argument is used. This option has effect '
+         'only when Node.js is built with --with-intl=small-icu.')
+
 parser.add_option('--with-ltcg',
     action='store_true',
     dest='with_ltcg',
     help='Use Link Time Code Generation. This feature is only available on Windows.')
 
-parser.add_option('--with-node-snapshot',
+parser.add_option('--without-node-snapshot',
     action='store_true',
-    dest='with_node_snapshot',
-    help='Turn on V8 snapshot integration. Currently experimental.')
+    dest='without_node_snapshot',
+    help='Turn off V8 snapshot integration. Currently experimental.')
+
+parser.add_option('--without-node-code-cache',
+    action='store_true',
+    dest='without_node_code_cache',
+    help='Turn off V8 Code cache integration.')
 
 intl_optgroup.add_option('--download',
     action='store',
@@ -466,12 +543,12 @@ parser.add_option('--without-npm',
     dest='without_npm',
     help='do not install the bundled npm (package manager)')
 
+# Dummy option for backwards compatibility
 parser.add_option('--without-report',
     action='store_true',
-    dest='without_report',
-    help='build without report')
+    dest='unused_without_report',
+    help=optparse.SUPPRESS_HELP)
 
-# Dummy option for backwards compatibility
 parser.add_option('--with-snapshot',
     action='store_true',
     dest='unused_with_snapshot',
@@ -479,18 +556,13 @@ parser.add_option('--with-snapshot',
 
 parser.add_option('--without-snapshot',
     action='store_true',
-    dest='without_snapshot',
+    dest='unused_without_snapshot',
     help=optparse.SUPPRESS_HELP)
 
 parser.add_option('--without-siphash',
     action='store_true',
     dest='without_siphash',
     help=optparse.SUPPRESS_HELP)
-
-parser.add_option('--code-cache-path',
-    action='store',
-    dest='code_cache_path',
-    help='optparse.SUPPRESS_HELP')
 
 # End dummy list.
 
@@ -512,7 +584,7 @@ parser.add_option('--ninja',
 parser.add_option('--enable-asan',
     action='store_true',
     dest='enable_asan',
-    help='build with asan')
+    help='compile for Address Sanitizer to find memory bugs')
 
 parser.add_option('--enable-static',
     action='store_true',
@@ -568,6 +640,18 @@ parser.add_option('--v8-non-optimized-debug',
     default=False,
     help='compile V8 with minimal optimizations and with runtime checks')
 
+parser.add_option('--v8-with-dchecks',
+    action='store_true',
+    dest='v8_with_dchecks',
+    default=False,
+    help='compile V8 with debug checks and runtime debugging features enabled')
+
+parser.add_option('--node-builtin-modules-path',
+    action='store',
+    dest='node_builtin_modules_path',
+    default=False,
+    help='node will load builtin modules from disk instead of from binary')
+
 # Create compile_commands.json in out/Debug and out/Release.
 parser.add_option('-C',
     action='store_true',
@@ -610,29 +694,38 @@ def print_verbose(x):
 
 def b(value):
   """Returns the string 'true' if value is truthy, 'false' otherwise."""
-  if value:
-    return 'true'
-  else:
-    return 'false'
+  return 'true' if value else 'false'
 
+def B(value):
+  """Returns 1 if value is truthy, 0 otherwise."""
+  return 1 if value else 0
+
+def to_utf8(s):
+  return s if isinstance(s, str) else s.decode("utf-8")
 
 def pkg_config(pkg):
   """Run pkg-config on the specified package
   Returns ("-l flags", "-I flags", "-L flags", "version")
   otherwise (None, None, None, None)"""
   pkg_config = os.environ.get('PKG_CONFIG', 'pkg-config')
+  args = []  # Print pkg-config warnings on first round.
   retval = ()
   for flag in ['--libs-only-l', '--cflags-only-I',
                '--libs-only-L', '--modversion']:
+    args += [flag]
+    if isinstance(pkg, list):
+      args += pkg
+    else:
+      args += [pkg]
     try:
-      proc = subprocess.Popen(
-          shlex.split(pkg_config) + ['--silence-errors', flag, pkg],
-          stdout=subprocess.PIPE)
-      val = proc.communicate()[0].strip()
+      proc = subprocess.Popen(shlex.split(pkg_config) + args,
+                              stdout=subprocess.PIPE)
+      val = to_utf8(proc.communicate()[0]).strip()
     except OSError as e:
       if e.errno != errno.ENOENT: raise e  # Unexpected error.
       return (None, None, None, None)  # No pkg-config/pkgconf installed.
     retval += (val,)
+    args = ['--silence-errors']
   return retval
 
 
@@ -643,10 +736,10 @@ def try_check_compiler(cc, lang):
   except OSError:
     return (False, False, '', '')
 
-  proc.stdin.write('__clang__ __GNUC__ __GNUC_MINOR__ __GNUC_PATCHLEVEL__ '
-                   '__clang_major__ __clang_minor__ __clang_patchlevel__')
+  proc.stdin.write(b'__clang__ __GNUC__ __GNUC_MINOR__ __GNUC_PATCHLEVEL__ '
+                   b'__clang_major__ __clang_minor__ __clang_patchlevel__')
 
-  values = (proc.communicate()[0].split() + ['0'] * 7)[0:7]
+  values = (to_utf8(proc.communicate()[0]).split() + ['0'] * 7)[0:7]
   is_clang = values[0] == '1'
   gcc_version = tuple(map(int, values[1:1+3]))
   clang_version = tuple(map(int, values[4:4+3])) if is_clang else None
@@ -671,12 +764,12 @@ def get_version_helper(cc, regexp):
        consider adjusting the CC environment variable if you installed
        it in a non-standard prefix.''')
 
-  match = re.search(regexp, proc.communicate()[1])
+  match = re.search(regexp, to_utf8(proc.communicate()[1]))
 
   if match:
     return match.group(2)
   else:
-    return '0'
+    return '0.0'
 
 def get_nasm_version(asm):
   try:
@@ -685,25 +778,25 @@ def get_nasm_version(asm):
                             stdout=subprocess.PIPE)
   except OSError:
     warn('''No acceptable ASM compiler found!
-         Please make sure you have installed NASM from http://www.nasm.us
+         Please make sure you have installed NASM from https://www.nasm.us
          and refer BUILDING.md.''')
-    return '0'
+    return '0.0'
 
   match = re.match(r"NASM version ([2-9]\.[0-9][0-9]+)",
-                   proc.communicate()[0])
+                   to_utf8(proc.communicate()[0]))
 
   if match:
     return match.group(1)
   else:
-    return '0'
+    return '0.0'
 
 def get_llvm_version(cc):
   return get_version_helper(
-    cc, r"(^(?:FreeBSD )?clang version|based on LLVM) ([3-9]\.[0-9]+)")
+    cc, r"(^(?:FreeBSD )?clang version|based on LLVM) ([0-9]+\.[0-9]+)")
 
 def get_xcode_version(cc):
   return get_version_helper(
-    cc, r"(^Apple LLVM version) ([0-9]+\.[0-9]+)")
+    cc, r"(^Apple (?:clang|LLVM) version) ([0-9]+\.[0-9]+)")
 
 def get_gas_version(cc):
   try:
@@ -721,14 +814,14 @@ def get_gas_version(cc):
        consider adjusting the CC environment variable if you installed
        it in a non-standard prefix.''')
 
-  gas_ret = proc.communicate()[1]
+  gas_ret = to_utf8(proc.communicate()[1])
   match = re.match(r"GNU assembler version ([2-9]\.[0-9]+)", gas_ret)
 
   if match:
     return match.group(1)
   else:
     warn('Could not recognize `gas`: ' + gas_ret)
-    return '0'
+    return '0.0'
 
 # Note: Apple clang self-reports as clang 4.2.0 and gcc 4.2.1.  It passes
 # the version check more by accident than anything else but a more rigorous
@@ -739,26 +832,34 @@ def check_compiler(o):
     if not options.openssl_no_asm and options.dest_cpu in ('x86', 'x64'):
       nasm_version = get_nasm_version('nasm')
       o['variables']['nasm_version'] = nasm_version
-      if nasm_version == 0:
+      if nasm_version == '0.0':
         o['variables']['openssl_no_asm'] = 1
     return
 
   ok, is_clang, clang_version, gcc_version = try_check_compiler(CXX, 'c++')
+  version_str = ".".join(map(str, clang_version if is_clang else gcc_version))
+  print_verbose('Detected %sC++ compiler (CXX=%s) version: %s' %
+                ('clang ' if is_clang else '', CXX, version_str))
   if not ok:
     warn('failed to autodetect C++ compiler version (CXX=%s)' % CXX)
   elif clang_version < (8, 0, 0) if is_clang else gcc_version < (6, 3, 0):
-    warn('C++ compiler too old, need g++ 6.3.0 or clang++ 8.0.0 (CXX=%s)' % CXX)
+    warn('C++ compiler (CXX=%s, %s) too old, need g++ 6.3.0 or clang++ 8.0.0' %
+         (CXX, version_str))
 
   ok, is_clang, clang_version, gcc_version = try_check_compiler(CC, 'c')
+  version_str = ".".join(map(str, clang_version if is_clang else gcc_version))
+  print_verbose('Detected %sC compiler (CC=%s) version: %s' %
+                ('clang ' if is_clang else '', CC, version_str))
   if not ok:
     warn('failed to autodetect C compiler version (CC=%s)' % CC)
   elif not is_clang and gcc_version < (4, 2, 0):
     # clang 3.2 is a little white lie because any clang version will probably
     # do for the C bits.  However, we might as well encourage people to upgrade
     # to a version that is not completely ancient.
-    warn('C compiler too old, need gcc 4.2 or clang 3.2 (CC=%s)' % CC)
+    warn('C compiler (CC=%s, %s) too old, need gcc 4.2 or clang 3.2' %
+         (CC, version_str))
 
-  o['variables']['llvm_version'] = get_llvm_version(CC) if is_clang else 0
+  o['variables']['llvm_version'] = get_llvm_version(CC) if is_clang else '0.0'
 
   # Need xcode_version or gas_version when openssl asm files are compiled.
   if options.without_ssl or options.openssl_no_asm or options.shared_openssl:
@@ -786,10 +887,8 @@ def cc_macros(cc=None):
        consider adjusting the CC environment variable if you installed
        it in a non-standard prefix.''')
 
-  p.stdin.write('\n')
-  out = p.communicate()[0]
-
-  out = str(out).split('\n')
+  p.stdin.write(b'\n')
+  out = to_utf8(p.communicate()[0]).split('\n')
 
   k = {}
   for line in out:
@@ -837,10 +936,11 @@ def host_arch_cc():
     '__aarch64__' : 'arm64',
     '__arm__'     : 'arm',
     '__i386__'    : 'ia32',
+    '__MIPSEL__'  : 'mipsel',
+    '__mips__'    : 'mips',
     '__PPC64__'   : 'ppc64',
     '__PPC__'     : 'ppc64',
     '__x86_64__'  : 'x64',
-    '__s390__'    : 's390',
     '__s390x__'   : 's390x',
   }
 
@@ -849,8 +949,10 @@ def host_arch_cc():
   for i in matchup:
     if i in k and k[i] != '0':
       rtn = matchup[i]
-      if rtn != 's390':
-        break
+      break
+
+  if rtn == 'mipsel' and '_LP64' in k:
+    rtn = 'mips64el'
 
   return rtn
 
@@ -865,6 +967,7 @@ def host_arch_win():
     'AMD64'  : 'x64',
     'x86'    : 'ia32',
     'arm'    : 'arm',
+    'mips'   : 'mips',
   }
 
   return matchup.get(arch, 'ia32')
@@ -896,6 +999,14 @@ def configure_arm(o):
   o['variables']['arm_fpu'] = options.arm_fpu or arm_fpu
 
 
+def configure_mips(o):
+  can_use_fpu_instructions = (options.mips_float_abi != 'soft')
+  o['variables']['v8_can_use_fpu_instructions'] = b(can_use_fpu_instructions)
+  o['variables']['v8_use_mips_abi_hardfloat'] = b(can_use_fpu_instructions)
+  o['variables']['mips_arch_variant'] = options.mips_arch_variant
+  o['variables']['mips_fpu_mode'] = options.mips_fpu_mode
+
+
 def gcc_version_ge(version_checked):
   for compiler in [(CC, 'c'), (CXX, 'c++')]:
     ok, is_clang, clang_version, compiler_version = \
@@ -910,8 +1021,9 @@ def configure_node(o):
     o['variables']['OS'] = 'android'
   o['variables']['node_prefix'] = options.prefix
   o['variables']['node_install_npm'] = b(not options.without_npm)
-  o['variables']['node_report'] = b(not options.without_report)
+  o['variables']['debug_node'] = b(options.debug_node)
   o['default_configuration'] = 'Debug' if options.debug else 'Release'
+  o['variables']['error_on_warn'] = b(options.error_on_warn)
 
   host_arch = host_arch_win() if os.name == 'nt' else host_arch_cc()
   target_arch = options.dest_cpu or host_arch
@@ -929,31 +1041,33 @@ def configure_node(o):
   cross_compiling = (options.cross_compiling
                      if options.cross_compiling is not None
                      else target_arch != host_arch)
-  want_snapshots = not options.without_snapshot
-  o['variables']['want_separate_host_toolset'] = int(
-      cross_compiling and want_snapshots)
+  if cross_compiling:
+    os.environ['GYP_CROSSCOMPILE'] = "1"
+  if options.unused_without_snapshot:
+    warn('building --without-snapshot is no longer possible')
 
-  if options.with_node_snapshot:
-    o['variables']['node_use_node_snapshot'] = 'true'
-  else:
-    # Default to false for now.
-    # TODO(joyeecheung): enable it once we fix the hashseed uniqueness
+  o['variables']['want_separate_host_toolset'] = int(cross_compiling)
+
+  if options.without_node_snapshot or options.node_builtin_modules_path:
     o['variables']['node_use_node_snapshot'] = 'false'
+  else:
+    o['variables']['node_use_node_snapshot'] = b(
+      not cross_compiling and not options.shared)
+
+  if options.without_node_code_cache or options.node_builtin_modules_path:
+    o['variables']['node_use_node_code_cache'] = 'false'
+  else:
+    # TODO(refack): fix this when implementing embedded code-cache when cross-compiling.
+    o['variables']['node_use_node_code_cache'] = b(
+      not cross_compiling and not options.shared)
 
   if target_arch == 'arm':
     configure_arm(o)
+  elif target_arch in ('mips', 'mipsel', 'mips64el'):
+    configure_mips(o)
 
   if flavor == 'aix':
     o['variables']['node_target_type'] = 'static_library'
-
-  if target_arch in ('x86', 'x64', 'ia32', 'x32'):
-    o['variables']['node_enable_v8_vtunejit'] = b(options.enable_vtune_profiling)
-  elif options.enable_vtune_profiling:
-    raise Exception(
-       'The VTune profiler for JavaScript is only supported on x32, x86, and x64 '
-       'architectures.')
-  else:
-    o['variables']['node_enable_v8_vtunejit'] = 'false'
 
   if flavor != 'linux' and (options.enable_pgo_generate or options.enable_pgo_use):
     raise Exception(
@@ -1009,23 +1123,12 @@ def configure_node(o):
   else:
     o['variables']['node_use_dtrace'] = 'false'
 
-  if options.node_use_large_pages and flavor != 'linux':
-    raise Exception(
-      'Large pages are supported only on Linux Systems.')
-  if options.node_use_large_pages and flavor == 'linux':
-    if options.shared or options.enable_static:
-      raise Exception(
-        'Large pages are supported only while creating node executable.')
-    if target_arch!="x64":
-      raise Exception(
-        'Large pages are supported only x64 platform.')
-    # Example full version string: 2.6.32-696.28.1.el6.x86_64
-    FULL_KERNEL_VERSION=os.uname()[2]
-    KERNEL_VERSION=FULL_KERNEL_VERSION.split('-')[0]
-    if KERNEL_VERSION < "2.6.38":
-      raise Exception(
-        'Large pages need Linux kernel version >= 2.6.38')
-  o['variables']['node_use_large_pages'] = b(options.node_use_large_pages)
+  if options.node_use_large_pages or options.node_use_large_pages_script_lld:
+    warn('''The `--use-largepages` and `--use-largepages-script-lld` options
+         have no effect during build time. Support for mapping to large pages is
+         now a runtime option of Node.js. Run `node --use-largepages` or add
+         `--use-largepages` to the `NODE_OPTIONS` environment variable once
+         Node.js is built to enable mapping to large pages.''')
 
   if options.no_ifaddrs:
     o['defines'] += ['SUNOS_NO_IFADDRS']
@@ -1063,20 +1166,21 @@ def configure_node(o):
     o['variables']['debug_nghttp2'] = 'false'
 
   o['variables']['node_no_browser_globals'] = b(options.no_browser_globals)
-  # TODO(refack): fix this when implementing embedded code-cache when cross-compiling.
-  if o['variables']['want_separate_host_toolset'] == 0:
-    o['variables']['node_code_cache_path'] = 'yes'
+
   o['variables']['node_shared'] = b(options.shared)
   node_module_version = getmoduleversion.get_version()
 
-  if sys.platform == 'darwin':
+  if options.dest_os == 'android':
+    shlib_suffix = 'so'
+  elif sys.platform == 'darwin':
     shlib_suffix = '%s.dylib'
   elif sys.platform.startswith('aix'):
     shlib_suffix = '%s.a'
   else:
     shlib_suffix = 'so.%s'
+  if '%s' in shlib_suffix:
+    shlib_suffix %= node_module_version
 
-  shlib_suffix %= node_module_version
   o['variables']['node_module_version'] = int(node_module_version)
   o['variables']['shlib_suffix'] = shlib_suffix
 
@@ -1097,12 +1201,21 @@ def configure_node(o):
   else:
     o['variables']['node_target_type'] = 'executable'
 
-def configure_library(lib, output):
+  if options.node_builtin_modules_path:
+    print('Warning! Loading builtin modules from disk is for development')
+    o['variables']['node_builtin_modules_path'] = options.node_builtin_modules_path
+
+def configure_napi(output):
+  version = getnapibuildversion.get_napi_version()
+  output['variables']['napi_build_version'] = version
+
+def configure_library(lib, output, pkgname=None):
   shared_lib = 'shared_' + lib
   output['variables']['node_' + shared_lib] = b(getattr(options, shared_lib))
 
   if getattr(options, shared_lib):
-    (pkg_libs, pkg_cflags, pkg_libpath, pkg_modversion) = pkg_config(lib)
+    (pkg_libs, pkg_cflags, pkg_libpath, pkg_modversion) = (
+        pkg_config(pkgname or lib))
 
     if options.__dict__[shared_lib + '_includes']:
       output['include_dirs'] += [options.__dict__[shared_lib + '_includes']]
@@ -1136,10 +1249,12 @@ def configure_v8(o):
   o['variables']['v8_enable_gdbjit'] = 1 if options.gdb else 0
   o['variables']['v8_no_strict_aliasing'] = 1  # Work around compiler bugs.
   o['variables']['v8_optimized_debug'] = 0 if options.v8_non_optimized_debug else 1
+  o['variables']['dcheck_always_on'] = 1 if options.v8_with_dchecks else 0
   o['variables']['v8_random_seed'] = 0  # Use a random seed for hash tables.
   o['variables']['v8_promise_internal_field_count'] = 1 # Add internal field to promises for async hooks.
   o['variables']['v8_use_siphash'] = 0 if options.without_siphash else 1
-  o['variables']['v8_use_snapshot'] = 0 if options.without_snapshot else 1
+  o['variables']['v8_enable_pointer_compression'] = 1 if options.enable_pointer_compression else 0
+  o['variables']['v8_enable_31bit_smis_on_64bit_arch'] = 1 if options.enable_pointer_compression else 0
   o['variables']['v8_trace_maps'] = 1 if options.trace_maps else 0
   o['variables']['node_use_v8_platform'] = b(not options.without_v8_platform)
   o['variables']['node_use_bundled_v8'] = b(not options.without_bundled_v8)
@@ -1194,10 +1309,10 @@ def configure_openssl(o):
     # supported asm compiler for AVX2. See https://github.com/openssl/openssl/
     # blob/OpenSSL_1_1_0-stable/crypto/modes/asm/aesni-gcm-x86_64.pl#L52-L69
     openssl110_asm_supported = \
-      ('gas_version' in variables and float(variables['gas_version']) >= 2.23) or \
-      ('xcode_version' in variables and float(variables['xcode_version']) >= 5.0) or \
-      ('llvm_version' in variables and float(variables['llvm_version']) >= 3.3) or \
-      ('nasm_version' in variables and float(variables['nasm_version']) >= 2.10)
+      ('gas_version' in variables and StrictVersion(variables['gas_version']) >= StrictVersion('2.23')) or \
+      ('xcode_version' in variables and StrictVersion(variables['xcode_version']) >= StrictVersion('5.0')) or \
+      ('llvm_version' in variables and StrictVersion(variables['llvm_version']) >= StrictVersion('3.3')) or \
+      ('nasm_version' in variables and StrictVersion(variables['nasm_version']) >= StrictVersion('2.10'))
 
     if is_x86 and not openssl110_asm_supported:
       error('''Did not find a new enough assembler, install one or build with
@@ -1261,7 +1376,7 @@ def glob_to_var(dir_base, dir_sub, patch_dir):
 
 def configure_intl(o):
   def icu_download(path):
-    depFile = 'tools/icu/current_ver.dep';
+    depFile = 'tools/icu/current_ver.dep'
     with open(depFile) as f:
       icus = json.load(f)
     # download ICU, if needed
@@ -1330,8 +1445,9 @@ def configure_intl(o):
     o['variables']['icu_small'] = b(True)
     locs = set(options.with_icu_locales.split(','))
     locs.add('root')  # must have root
-    o['variables']['icu_locales'] = string.join(locs,',')
+    o['variables']['icu_locales'] = ','.join(str(loc) for loc in locs)
     # We will check a bit later if we can use the canned deps/icu-small
+    o['variables']['icu_default_data'] = options.with_icu_default_data_dir or ''
   elif with_intl == 'full-icu':
     # full ICU
     o['variables']['v8_enable_i18n_support'] = 1
@@ -1339,7 +1455,7 @@ def configure_intl(o):
     # ICU from pkg-config.
     o['variables']['v8_enable_i18n_support'] = 1
     pkgicu = pkg_config('icu-i18n')
-    if pkgicu[0] is None:
+    if not pkgicu[0]:
       error('''Could not load pkg-config data for "icu-i18n".
        See above errors or the README.md.''')
     (libs, cflags, libpath, icuversion) = pkgicu
@@ -1364,7 +1480,8 @@ def configure_intl(o):
   icu_parent_path = 'deps'
 
   # The full path to the ICU source directory. Should not include './'.
-  icu_full_path = 'deps/icu'
+  icu_deps_path = 'deps/icu'
+  icu_full_path = icu_deps_path
 
   # icu-tmp is used to download and unpack the ICU tarball.
   icu_tmp_path = os.path.join(icu_parent_path, 'icu-tmp')
@@ -1372,30 +1489,26 @@ def configure_intl(o):
   # canned ICU. see tools/icu/README.md to update.
   canned_icu_dir = 'deps/icu-small'
 
+  # use the README to verify what the canned ICU is
+  canned_is_full = os.path.isfile(os.path.join(canned_icu_dir, 'README-FULL-ICU.txt'))
+  canned_is_small = os.path.isfile(os.path.join(canned_icu_dir, 'README-SMALL-ICU.txt'))
+  if canned_is_small:
+    warn('Ignoring %s - in-repo small icu is no longer supported.' % canned_icu_dir)
+
   # We can use 'deps/icu-small' - pre-canned ICU *iff*
-  # - with_intl == small-icu (the default!)
-  # - with_icu_locales == 'root,en' (the default!)
-  # - deps/icu-small exists!
+  # - canned_is_full AND
   # - with_icu_source is unset (i.e. no other ICU was specified)
-  # (Note that this is the *DEFAULT CASE*.)
   #
   # This is *roughly* equivalent to
-  # $ configure --with-intl=small-icu --with-icu-source=deps/icu-small
+  # $ configure --with-intl=full-icu --with-icu-source=deps/icu-small
   # .. Except that we avoid copying icu-small over to deps/icu.
   # In this default case, deps/icu is ignored, although make clean will
   # still harmlessly remove deps/icu.
 
-  # are we using default locales?
-  using_default_locales = ( options.with_icu_locales == icu_default_locales )
-
-  # make sure the canned ICU really exists
-  canned_icu_available = os.path.isdir(canned_icu_dir)
-
-  if (o['variables']['icu_small'] == b(True)) and using_default_locales and (not with_icu_source) and canned_icu_available:
+  if (not with_icu_source) and canned_is_full:
     # OK- we can use the canned ICU.
-    icu_config['variables']['icu_small_canned'] = 1
     icu_full_path = canned_icu_dir
-
+    icu_config['variables']['icu_full_canned'] = 1
   # --with-icu-source processing
   # now, check that they didn't pass --with-icu-source=deps/icu
   elif with_icu_source and os.path.abspath(icu_full_path) == os.path.abspath(with_icu_source):
@@ -1461,41 +1574,56 @@ def configure_intl(o):
   icu_ver_major = None
   matchVerExp = r'^\s*#define\s+U_ICU_VERSION_SHORT\s+"([^"]*)".*'
   match_version = re.compile(matchVerExp)
-  for line in open(uvernum_h).readlines():
-    m = match_version.match(line)
-    if m:
-      icu_ver_major = m.group(1)
+  with io.open(uvernum_h, encoding='utf8') as in_file:
+    for line in in_file:
+      m = match_version.match(line)
+      if m:
+        icu_ver_major = str(m.group(1))
   if not icu_ver_major:
     error('Could not read U_ICU_VERSION_SHORT version from %s' % uvernum_h)
   elif int(icu_ver_major) < icu_versions['minimum_icu']:
     error('icu4c v%s.x is too old, v%d.x or later is required.' %
           (icu_ver_major, icu_versions['minimum_icu']))
-  icu_endianness = sys.byteorder[0];
+  icu_endianness = sys.byteorder[0]
   o['variables']['icu_ver_major'] = icu_ver_major
   o['variables']['icu_endianness'] = icu_endianness
-  icu_data_file_l = 'icudt%s%s.dat' % (icu_ver_major, 'l')
+  icu_data_file_l = 'icudt%s%s.dat' % (icu_ver_major, 'l') # LE filename
   icu_data_file = 'icudt%s%s.dat' % (icu_ver_major, icu_endianness)
   # relative to configure
   icu_data_path = os.path.join(icu_full_path,
                                'source/data/in',
-                               icu_data_file_l)
+                               icu_data_file_l) # LE
+  compressed_data = '%s.bz2' % (icu_data_path)
+  if not os.path.isfile(icu_data_path) and os.path.isfile(compressed_data):
+    # unpack. deps/icu is a temporary path
+    if os.path.isdir(icu_tmp_path):
+      shutil.rmtree(icu_tmp_path)
+    os.mkdir(icu_tmp_path)
+    icu_data_path = os.path.join(icu_tmp_path, icu_data_file_l)
+    with open(icu_data_path, 'wb') as outf:
+        inf = bz2.BZ2File(compressed_data, 'rb')
+        try:
+          shutil.copyfileobj(inf, outf)
+        finally:
+          inf.close()
+    # Now, proceed..
+
   # relative to dep..
-  icu_data_in = os.path.join('..','..', icu_full_path, 'source/data/in', icu_data_file_l)
+  icu_data_in = os.path.join('..','..', icu_data_path)
   if not os.path.isfile(icu_data_path) and icu_endianness != 'l':
     # use host endianness
     icu_data_path = os.path.join(icu_full_path,
                                  'source/data/in',
-                                 icu_data_file)
-    # relative to dep..
-    icu_data_in = os.path.join('..', icu_full_path, 'source/data/in',
-                               icu_data_file)
-  # this is the input '.dat' file to use .. icudt*.dat
-  # may be little-endian if from a icu-project.org tarball
-  o['variables']['icu_data_in'] = icu_data_in
+                                 icu_data_file) # will be generated
   if not os.path.isfile(icu_data_path):
     # .. and we're not about to build it from .gyp!
     error('''ICU prebuilt data file %s does not exist.
        See the README.md.''' % icu_data_path)
+
+  # this is the input '.dat' file to use .. icudt*.dat
+  # may be little-endian if from a icu-project.org tarball
+  o['variables']['icu_data_in'] = icu_data_in
+
   # map from variable name to subdirs
   icu_src = {
     'stubdata': 'stubdata',
@@ -1512,6 +1640,31 @@ def configure_intl(o):
     var  = 'icu_src_%s' % i
     path = '../../%s/source/%s' % (icu_full_path, icu_src[i])
     icu_config['variables'][var] = glob_to_var('tools/icu', path, 'patches/%s/source/%s' % (icu_ver_major, icu_src[i]) )
+  # calculate platform-specific genccode args
+  # print("platform %s, flavor %s" % (sys.platform, flavor))
+  # if sys.platform == 'darwin':
+  #   shlib_suffix = '%s.dylib'
+  # elif sys.platform.startswith('aix'):
+  #   shlib_suffix = '%s.a'
+  # else:
+  #   shlib_suffix = 'so.%s'
+  if flavor == 'win':
+    icu_config['variables']['icu_asm_ext'] = 'obj'
+    icu_config['variables']['icu_asm_opts'] = [ '-o ' ]
+  elif with_intl == 'small-icu' or options.cross_compiling:
+    icu_config['variables']['icu_asm_ext'] = 'c'
+    icu_config['variables']['icu_asm_opts'] = []
+  elif flavor == 'mac':
+    icu_config['variables']['icu_asm_ext'] = 'S'
+    icu_config['variables']['icu_asm_opts'] = [ '-a', 'gcc-darwin' ]
+  elif sys.platform.startswith('aix'):
+    icu_config['variables']['icu_asm_ext'] = 'S'
+    icu_config['variables']['icu_asm_opts'] = [ '-a', 'xlc' ]
+  else:
+    # assume GCC-compatible asm is OK
+    icu_config['variables']['icu_asm_ext'] = 'S'
+    icu_config['variables']['icu_asm_opts'] = [ '-a', 'gcc' ]
+
   # write updated icu_config.gypi with a bunch of paths
   write(icu_config_name, do_not_edit +
         pprint.pformat(icu_config, indent=2) + '\n')
@@ -1576,14 +1729,13 @@ if (options.dest_os):
 flavor = GetFlavor(flavor_params)
 
 configure_node(output)
+configure_napi(output)
 configure_library('zlib', output)
 configure_library('http_parser', output)
 configure_library('libuv', output)
-configure_library('libcares', output)
-configure_library('nghttp2', output)
-# stay backwards compatible with shared cares builds
-output['variables']['node_shared_cares'] = \
-    output['variables'].pop('node_shared_libcares')
+configure_library('brotli', output, pkgname=['libbrotlidec', 'libbrotlienc'])
+configure_library('cares', output, pkgname='libcares')
+configure_library('nghttp2', output, pkgname='libnghttp2')
 configure_v8(output)
 configure_openssl(output)
 configure_intl(output)
@@ -1594,6 +1746,7 @@ configure_inspector(output)
 # move everything else to target_defaults
 variables = output['variables']
 del output['variables']
+variables['is_debug'] = B(options.debug)
 
 # make_global_settings for special FIPS linking
 # should not be used to compile modules in node-gyp

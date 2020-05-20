@@ -1,4 +1,5 @@
 #include "node_binding.h"
+#include "node_errors.h"
 #include <atomic>
 #include "env-inl.h"
 #include "node_native_module_env.h"
@@ -14,12 +15,6 @@
 #define NODE_BUILTIN_ICU_MODULES(V) V(icu)
 #else
 #define NODE_BUILTIN_ICU_MODULES(V)
-#endif
-
-#if NODE_REPORT
-#define NODE_BUILTIN_REPORT_MODULES(V) V(report)
-#else
-#define NODE_BUILTIN_REPORT_MODULES(V)
 #endif
 
 #if HAVE_INSPECTOR
@@ -48,12 +43,13 @@
   V(contextify)                                                                \
   V(credentials)                                                               \
   V(domain)                                                                    \
+  V(errors)                                                                    \
   V(fs)                                                                        \
+  V(fs_dir)                                                                    \
   V(fs_event_wrap)                                                             \
   V(heap_utils)                                                                \
   V(http2)                                                                     \
   V(http_parser)                                                               \
-  V(http_parser_llhttp)                                                        \
   V(inspector)                                                                 \
   V(js_stream)                                                                 \
   V(messaging)                                                                 \
@@ -65,6 +61,7 @@
   V(pipe_wrap)                                                                 \
   V(process_wrap)                                                              \
   V(process_methods)                                                           \
+  V(report)                                                                    \
   V(serdes)                                                                    \
   V(signal_wrap)                                                               \
   V(spawn_sync)                                                                \
@@ -83,14 +80,15 @@
   V(util)                                                                      \
   V(uv)                                                                        \
   V(v8)                                                                        \
+  V(wasi)                                                                      \
   V(worker)                                                                    \
+  V(watchdog)                                                                  \
   V(zlib)
 
 #define NODE_BUILTIN_MODULES(V)                                                \
   NODE_BUILTIN_STANDARD_MODULES(V)                                             \
   NODE_BUILTIN_OPENSSL_MODULES(V)                                              \
   NODE_BUILTIN_ICU_MODULES(V)                                                  \
-  NODE_BUILTIN_REPORT_MODULES(V)                                               \
   NODE_BUILTIN_PROFILER_MODULES(V)                                             \
   NODE_BUILTIN_DTRACE_MODULES(V)
 
@@ -150,7 +148,7 @@ void* wrapped_dlopen(const char* filename, int flags) {
   Mutex::ScopedLock lock(dlhandles_mutex);
 
   uv_fs_t req;
-  OnScopeLeave cleanup([&]() { uv_fs_req_cleanup(&req); });
+  auto cleanup = OnScopeLeave([&]() { uv_fs_req_cleanup(&req); });
   int rc = uv_fs_stat(nullptr, &req, filename, nullptr);
 
   if (rc != 0) {
@@ -232,6 +230,7 @@ namespace node {
 
 using v8::Context;
 using v8::Exception;
+using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::Local;
 using v8::NewStringType;
@@ -242,8 +241,7 @@ using v8::Value;
 // Globals per process
 static node_module* modlist_internal;
 static node_module* modlist_linked;
-static uv_once_t init_modpending_once = UV_ONCE_INIT;
-static uv_key_t thread_local_modpending;
+static thread_local node_module* thread_local_modpending;
 
 // This is set by node::Init() which is used by embedders
 bool node_is_initialized = false;
@@ -261,7 +259,7 @@ extern "C" void node_module_register(void* m) {
     mp->nm_link = modlist_linked;
     modlist_linked = mp;
   } else {
-    uv_key_set(&thread_local_modpending, mp);
+    thread_local_modpending = mp;
   }
 }
 
@@ -405,10 +403,6 @@ inline napi_addon_register_func GetNapiInitializerCallback(DLib* dlib) {
       dlib->GetSymbolAddress(name));
 }
 
-void InitModpendingOnce() {
-  CHECK_EQ(0, uv_key_create(&thread_local_modpending));
-}
-
 // DLOpen is process.dlopen(module, filename, flags).
 // Used to load 'module.node' dynamically shared objects.
 //
@@ -419,8 +413,7 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   auto context = env->context();
 
-  uv_once(&init_modpending_once, InitModpendingOnce);
-  CHECK_NULL(uv_key_get(&thread_local_modpending));
+  CHECK_NULL(thread_local_modpending);
 
   if (args.Length() < 2) {
     env->ThrowError("process.dlopen needs at least 2 arguments.");
@@ -451,9 +444,8 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
     // Objects containing v14 or later modules will have registered themselves
     // on the pending list.  Activate all of them now.  At present, only one
     // module per object is supported.
-    node_module* mp =
-        static_cast<node_module*>(uv_key_get(&thread_local_modpending));
-    uv_key_set(&thread_local_modpending, nullptr);
+    node_module* mp = thread_local_modpending;
+    thread_local_modpending = nullptr;
 
     if (!is_opened) {
       Local<String> errmsg =
@@ -469,6 +461,13 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
     }
 
     if (mp != nullptr) {
+      if (mp->nm_context_register_func == nullptr) {
+        if (env->options()->force_context_aware) {
+          dlib->Close();
+          THROW_ERR_NON_CONTEXT_AWARE_DISABLED(env);
+          return false;
+        }
+      }
       mp->nm_dso_handle = dlib->handle_;
       dlib->SaveInGlobalHandleMap(mp);
     } else {
@@ -482,7 +481,12 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
         mp = dlib->GetSavedModuleFromGlobalHandleMap();
         if (mp == nullptr || mp->nm_context_register_func == nullptr) {
           dlib->Close();
-          env->ThrowError("Module did not self-register.");
+          char errmsg[1024];
+          snprintf(errmsg,
+                   sizeof(errmsg),
+                   "Module did not self-register: '%s'.",
+                   *filename);
+          env->ThrowError(errmsg);
           return false;
         }
       }
@@ -550,18 +554,14 @@ inline struct node_module* FindModule(struct node_module* list,
   return mp;
 }
 
-node_module* get_internal_module(const char* name) {
-  return FindModule(modlist_internal, name, NM_F_INTERNAL);
-}
-node_module* get_linked_module(const char* name) {
-  return FindModule(modlist_linked, name, NM_F_LINKED);
-}
-
 static Local<Object> InitModule(Environment* env,
                                 node_module* mod,
                                 Local<String> module) {
-  Local<Object> exports = Object::New(env->isolate());
   // Internal bindings don't have a "module" object, only exports.
+  Local<Function> ctor = env->binding_data_ctor_template()
+                             ->GetFunction(env->context())
+                             .ToLocalChecked();
+  Local<Object> exports = ctor->NewInstance(env->context()).ToLocalChecked();
   CHECK_NULL(mod->nm_register_func);
   CHECK_NOT_NULL(mod->nm_context_register_func);
   Local<Value> unused = Undefined(env->isolate());
@@ -584,7 +584,7 @@ void GetInternalBinding(const FunctionCallbackInfo<Value>& args) {
   node::Utf8Value module_v(env->isolate(), module);
   Local<Object> exports;
 
-  node_module* mod = get_internal_module(*module_v);
+  node_module* mod = FindModule(modlist_internal, *module_v, NM_F_INTERNAL);
   if (mod != nullptr) {
     exports = InitModule(env, mod, module);
   } else if (!strcmp(*module_v, "constants")) {
@@ -617,7 +617,20 @@ void GetLinkedBinding(const FunctionCallbackInfo<Value>& args) {
   Local<String> module_name = args[0].As<String>();
 
   node::Utf8Value module_name_v(env->isolate(), module_name);
-  node_module* mod = get_linked_module(*module_name_v);
+  const char* name = *module_name_v;
+  node_module* mod = nullptr;
+
+  // Iterate from here to the nearest non-Worker Environment to see if there's
+  // a linked binding defined locally rather than through the global list.
+  Environment* cur_env = env;
+  while (mod == nullptr && cur_env != nullptr) {
+    Mutex::ScopedLock lock(cur_env->extra_linked_bindings_mutex());
+    mod = FindModule(cur_env->extra_linked_bindings_head(), name, NM_F_LINKED);
+    cur_env = cur_env->worker_parent_env();
+  }
+
+  if (mod == nullptr)
+    mod = FindModule(modlist_linked, name, NM_F_LINKED);
 
   if (mod == nullptr) {
     char errmsg[1024];

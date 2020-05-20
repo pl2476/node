@@ -1,7 +1,6 @@
 #include "snapshot_builder.h"
 #include <iostream>
 #include <sstream>
-#include "env-inl.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
 #include "node_v8_platform-inl.h"
@@ -11,8 +10,6 @@ namespace node {
 using v8::Context;
 using v8::HandleScope;
 using v8::Isolate;
-using v8::Local;
-using v8::Locker;
 using v8::SnapshotCreator;
 using v8::StartupData;
 
@@ -73,7 +70,7 @@ std::string SnapshotBuilder::Generate(
   Isolate* isolate = Isolate::Allocate();
   per_process::v8_platform.Platform()->RegisterIsolate(isolate,
                                                        uv_default_loop());
-  NodeMainInstance* main_instance = nullptr;
+  std::unique_ptr<NodeMainInstance> main_instance;
   std::string result;
 
   {
@@ -97,11 +94,12 @@ std::string SnapshotBuilder::Generate(
     // Must be out of HandleScope
     StartupData blob =
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
+    CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
     main_instance->Dispose();
     result = FormatBlob(&blob, isolate_data_indexes);
-    delete blob.data;
+    delete[] blob.data;
   }
 
   per_process::v8_platform.Platform()->UnregisterIsolate(isolate);

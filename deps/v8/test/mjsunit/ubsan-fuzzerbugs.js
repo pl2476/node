@@ -50,7 +50,27 @@ float_array[0] = 1e51;
   function __f_14159(buffer) {
     try { return buffer.getUint16(Infinity, true); } catch(e) { return 0; }
   }
+  %PrepareFunctionForOptimization(__f_14159);
   __f_14159(buffer);
   %OptimizeFunctionOnNextCall(__f_14159);
   __f_14159(buffer);
+})();
+
+// crbug.com/937652
+(function() {
+  function f() {
+    for (var i = 0; i < 1; i++) {
+      var shift = 1;
+      for (var j = 0; j < 2; ++j) {
+        if (shift == shift) shift = 0;
+        var x = 1;
+        print((x << shift | x >>> 32 - shift));
+      }
+    }
+  }
+  %PrepareFunctionForOptimization(f);
+  f();
+  f();
+  %OptimizeFunctionOnNextCall(f);
+  f();
 })();
