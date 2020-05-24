@@ -160,8 +160,9 @@ constexpr size_t kFsStatsBufferLength =
   V(handle_onclose_symbol, "handle_onclose")                                   \
   V(no_message_symbol, "no_message_symbol")                                    \
   V(oninit_symbol, "oninit")                                                   \
-  V(owner_symbol, "owner")                                                     \
+  V(owner_symbol, "owner_symbol")                                              \
   V(onpskexchange_symbol, "onpskexchange")                                     \
+  V(resource_symbol, "resource_symbol")                                        \
   V(trigger_async_id_symbol, "trigger_async_id_symbol")                        \
 
 // Strings are per-isolate primitives but Environment proxies them
@@ -1102,8 +1103,6 @@ class Environment : public MemoryRetainer {
                                          const char* name,
                                          v8::FunctionCallback callback);
 
-  void BeforeExit(void (*cb)(void* arg), void* arg);
-  void RunBeforeExitCallbacks();
   void AtExit(void (*cb)(void* arg), void* arg);
   void RunAtExitCallbacks();
 
@@ -1164,12 +1163,12 @@ class Environment : public MemoryRetainer {
   // Unlike the JS setImmediate() function, nested SetImmediate() calls will
   // be run without returning control to the event loop, similar to nextTick().
   template <typename Fn>
-  inline void SetImmediate(Fn&& cb);
-  template <typename Fn>
-  inline void SetUnrefImmediate(Fn&& cb);
+  inline void SetImmediate(
+      Fn&& cb, CallbackFlags::Flags flags = CallbackFlags::kRefed);
   template <typename Fn>
   // This behaves like SetImmediate() but can be called from any thread.
-  inline void SetImmediateThreadsafe(Fn&& cb, bool refed = true);
+  inline void SetImmediateThreadsafe(
+      Fn&& cb, CallbackFlags::Flags flags = CallbackFlags::kRefed);
   // This behaves like V8's Isolate::RequestInterrupt(), but also accounts for
   // the event loop (i.e. combines the V8 function with SetImmediate()).
   // The passed callback may not throw exceptions.
@@ -1252,9 +1251,6 @@ class Environment : public MemoryRetainer {
   void RunAndClearInterrupts();
 
  private:
-  template <typename Fn>
-  inline void CreateImmediate(Fn&& cb, bool ref);
-
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>),
                          const char* errmsg);
 
@@ -1364,7 +1360,6 @@ class Environment : public MemoryRetainer {
     void (*cb_)(void* arg);
     void* arg_;
   };
-  std::list<ExitCallback> before_exit_functions_;
 
   std::list<ExitCallback> at_exit_functions_;
 

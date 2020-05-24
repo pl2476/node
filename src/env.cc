@@ -373,13 +373,6 @@ Environment::Environment(IsolateData* isolate_data,
   }
 
   destroy_async_id_list_.reserve(512);
-  BeforeExit(
-      [](void* arg) {
-        Environment* env = static_cast<Environment*>(arg);
-        if (!env->destroy_async_id_list()->empty())
-          AsyncWrap::DestroyAsyncIdsCallback(env);
-      },
-      this);
 
   performance_state_ =
       std::make_unique<performance::PerformanceState>(isolate());
@@ -587,7 +580,7 @@ void Environment::CleanupHandles() {
   Isolate::DisallowJavascriptExecutionScope disallow_js(isolate(),
       Isolate::DisallowJavascriptExecutionScope::THROW_ON_FAILURE);
 
-  RunAndClearNativeImmediates(true /* skip SetUnrefImmediate()s */);
+  RunAndClearNativeImmediates(true /* skip unrefed SetImmediate()s */);
 
   for (ReqWrapBase* request : req_wrap_queue_)
     request->Cancel();
@@ -677,19 +670,6 @@ void Environment::RunCleanup() {
   }
 }
 
-void Environment::RunBeforeExitCallbacks() {
-  TraceEventScope trace_scope(TRACING_CATEGORY_NODE1(environment),
-                              "BeforeExit", this);
-  for (ExitCallback before_exit : before_exit_functions_) {
-    before_exit.cb_(before_exit.arg_);
-  }
-  before_exit_functions_.clear();
-}
-
-void Environment::BeforeExit(void (*cb)(void* arg), void* arg) {
-  before_exit_functions_.push_back(ExitCallback{cb, arg});
-}
-
 void Environment::RunAtExitCallbacks() {
   TraceEventScope trace_scope(TRACING_CATEGORY_NODE1(environment),
                               "AtExit", this);
@@ -730,10 +710,11 @@ void Environment::RunAndClearNativeImmediates(bool only_refed) {
     TryCatchScope try_catch(this);
     DebugSealHandleScope seal_handle_scope(isolate());
     while (auto head = queue->Shift()) {
-      if (head->is_refed())
+      bool is_refed = head->flags() & CallbackFlags::kRefed;
+      if (is_refed)
         ref_count++;
 
-      if (head->is_refed() || !only_refed)
+      if (is_refed || !only_refed)
         head->Call(this);
 
       head.reset();  // Destroy now so that this is also observed by try_catch.

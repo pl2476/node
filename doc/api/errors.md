@@ -943,6 +943,11 @@ An invalid HTTP header value was specified.
 
 Status code was outside the regular status code range (100-999).
 
+<a id="ERR_HTTP_SOCKET_ENCODING"></a>
+### `ERR_HTTP_SOCKET_ENCODING`
+
+Changing the socket encoding is not allowed per [RFC 7230 Section 3][].
+
 <a id="ERR_HTTP_TRAILER_INVALID"></a>
 ### `ERR_HTTP_TRAILER_INVALID`
 
@@ -1223,6 +1228,13 @@ time.
 
 The `--input-type` flag was used to attempt to execute a file. This flag can
 only be used with input via `--eval`, `--print` or `STDIN`.
+
+<a id="ERR_INSPECTOR_ALREADY_ACTIVATED"></a>
+### `ERR_INSPECTOR_ALREADY_ACTIVATED`
+
+While using the `inspector` module, an attempt was made to activate the
+inspector when it already started to listen on a port. Use `inspector.close()`
+before activating it on a different address.
 
 <a id="ERR_INSPECTOR_ALREADY_CONNECTED"></a>
 ### `ERR_INSPECTOR_ALREADY_CONNECTED`
@@ -2613,6 +2625,7 @@ such as `process.stdout.on('data')`.
 [exports]: esm.html#esm_package_entry_points
 [file descriptors]: https://en.wikipedia.org/wiki/File_descriptor
 [policy]: policy.html
+[RFC 7230 Section 3]: https://tools.ietf.org/html/rfc7230#section-3
 [stream-based]: stream.html
 [syscall]: http://man7.org/linux/man-pages/man2/syscalls.2.html
 [Subresource Integrity specification]: https://www.w3.org/TR/SRI/#the-integrity-attribute

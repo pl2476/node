@@ -737,7 +737,7 @@ out/doc/api/assets:
 
 # If it's not a source tarball, we need to copy assets from doc/api_assets
 out/doc/api/assets/%: doc/api_assets/% out/doc/api/assets
-	@cp $< $@
+	@cp $< $@ ; $(RM) out/doc/api/assets/README.md
 
 
 run-npm-ci = $(PWD)/$(NPM) ci
@@ -771,6 +771,11 @@ out/doc/api/all.json: $(apidocs_json) tools/doc/alljson.js
 .PHONY: docopen
 docopen: $(apidocs_html)
 	@$(PYTHON) -mwebbrowser file://$(PWD)/out/doc/api/all.html
+
+.PHONY: docserve
+docserve: $(apidocs_html)
+	@$(PYTHON) -mwebbrowser http://localhost:8000/all.html
+	@$(PYTHON) -m http.server -d $(PWD)/out/doc/api
 
 .PHONY: docclean
 docclean:
